@@ -1,39 +1,36 @@
-﻿import mongoose from "mongoose";
-
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI is not defined in environment variables");
-}
-
-interface MongooseCache {
-  conn: typeof mongoose | null;
-  promise: Promise<typeof mongoose> | null;
-}
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { PrismaClient } from "@prisma/client";
 
 declare global {
-  var mongooseCache: MongooseCache | undefined;
+  var prismaGlobal: PrismaClient | undefined;
 }
 
-let cached: MongooseCache = global.mongooseCache || { conn: null, promise: null };
-if (!global.mongooseCache) {
-  global.mongooseCache = cached;
+let activePrisma: PrismaClient =
+  global.prismaGlobal ||
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  global.prismaGlobal = activePrisma;
 }
 
-export async function connectDB() {
-  if (cached.conn) return cached.conn;
-
-  if (!cached.promise) {
-    const opts = { bufferCommands: false };
-    cached.promise = mongoose.connect(MONGODB_URI as string, opts).then((m) => m);
-  }
-
-  try {
-    cached.conn = await cached.promise;
-  } catch (error) {
-    cached.promise = null;
-    throw error;
-  }
-
-  return cached.conn;
+export function getPrisma(): PrismaClient {
+  return activePrisma;
 }
+
+export function setPrismaClient(client: PrismaClient) {
+  activePrisma = client;
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop: string | symbol) {
+    return (activePrisma as any)[prop];
+  },
+});
+
+export async function connectDB(): Promise<PrismaClient> {
+  return activePrisma;
+}
+
+export default prisma;

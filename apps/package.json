@@ -6,15 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node src/tests/run.js"
   },
   "dependencies": {
+    "@prisma/client": "^6.4.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.65.0",
-    "mongoose": "^9.11.4",
     "next": "16.4.3",
+    "prisma": "^6.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tailwind-merge": "^3.7.0",

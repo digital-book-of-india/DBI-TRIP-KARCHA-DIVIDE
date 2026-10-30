@@ -1,10 +1,14 @@
-﻿export type ExpenseCategory = "stay" | "travel" | "food" | "tickets" | "shopping" | "other";
+export type ExpenseCategory = "stay" | "travel" | "food" | "tickets" | "shopping" | "other";
 
 export type SettlementStatus = "PENDING" | "CONFIRMED" | "DISPUTED";
 
 export type TripRole = "ADMIN" | "MEMBER";
 
-export interface ApiResponse<T = any> {
+export type SplitType = "EQUAL" | "EXACT" | "PERCENTAGE";
+
+export type AuditAction = "CREATED" | "EDITED" | "VOIDED";
+
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

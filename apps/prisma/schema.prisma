@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TripRole {
+  ADMIN
+  MEMBER
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENTAGE
+}
+
+enum AuditAction {
+  CREATED
+  EDITED
+  VOIDED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdTrips     Trip[]              @relation("TripCreator")
+  tripMemberships  TripMember[]
+  paidExpenses     Expense[]           @relation("ExpensePayer")
+  voidedExpenses   Expense[]           @relation("ExpenseVoider")
+  allocations      ExpenseAllocation[]
+  auditLogs        ExpenseAuditLog[]   @relation("AuditChangedBy")
+
+  @@map("users")
+}
+
+model Trip {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  currency    String   @default("INR")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User         @relation("TripCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members     TripMember[]
+  expenses    Expense[]
+
+  @@index([createdById])
+  @@map("trips")
+}
+
+model TripMember {
+  id        String   @id @default(cuid())
+  tripId    String
+  userId    String
+  role      TripRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, userId])
+  @@index([tripId])
+  @@index([userId])
+  @@map("trip_members")
+}
+
+model Expense {
+  id          String    @id @default(cuid())
+  tripId      String
+  payerId     String
+  title       String
+  amountMinor Int
+  category    String
+  splitType   SplitType
+  version     Int       @default(1)
+  isVoid      Boolean   @default(false)
+  voidReason  String?
+  voidedById  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  trip        Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer       User                @relation("ExpensePayer", fields: [payerId], references: [id], onDelete: Cascade)
+  voidedBy    User?               @relation("ExpenseVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  allocations ExpenseAllocation[]
+  auditLogs   ExpenseAuditLog[]
+
+  @@index([tripId])
+  @@index([payerId])
+  @@index([isVoid])
+  @@index([tripId, createdAt(sort: Desc)])
+  @@index([tripId, isVoid, createdAt(sort: Desc)])
+  @@index([tripId, category, isVoid, createdAt(sort: Desc)])
+  @@map("expenses")
+}
+
+model ExpenseAllocation {
+  id          String   @id @default(cuid())
+  expenseId   String
+  userId      String
+  amountMinor Int
+  percentage  Float?
+  shares      Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([expenseId, userId])
+  @@index([expenseId])
+  @@index([userId])
+  @@map("expense_allocations")
+}
+
+model ExpenseAuditLog {
+  id               String      @id @default(cuid())
+  expenseId        String
+  action           AuditAction
+  changedById      String
+  previousSnapshot Json?
+  newSnapshot      Json?
+  timestamp        DateTime    @default(now())
+
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("AuditChangedBy", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([expenseId, timestamp(sort: Desc)])
+  @@index([changedById])
+  @@map("expense_audit_logs")
+}
