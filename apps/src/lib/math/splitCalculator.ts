@@ -18,9 +18,9 @@ export interface SplitInput {
 
 export interface SplitResult {
   memberId: string;
-  userId: string;
+  userId?: string;
   shareMinor: number;
-  amountMinor: number;
+  amountMinor?: number;
   percentage?: number;
   shares?: number;
 }
@@ -37,6 +37,13 @@ export function calculateSplits(
   splitType: SplitType,
   participants: SplitInput[]
 ): SplitResult[] {
+  if (totalAmountMinor <= 0) {
+    throw new Error("Amount must be a positive integer in minor units (paise)");
+  }
+  if (!participants || participants.length === 0) {
+    throw new Error("At least one participant is required");
+  }
+
   const results = engineCalculateSplits(totalAmountMinor, splitType, participants);
 
   return results.map((r) => ({
