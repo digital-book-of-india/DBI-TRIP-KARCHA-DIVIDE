@@ -1,0 +1,224 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -------------------------------------------------------------
+// 1. IDENTITY & TRIPS (Dev 1 Existing Supabase Tables)
+// -------------------------------------------------------------
+
+model User {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  displayName     String          @map("display_name")
+  email           String          @unique
+  password_hash   String
+  avatarUrl       String?         @default("") @map("avatar_url")
+  accountStatus   String?         @default("ACTIVE") @map("account_status")
+  createdAt       DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  activity_events ActivityEvent[]
+  trip_invites    TripInvite[]
+  memberships     TripMember[]
+  trips           Trip[]
+  notifications   Notification[]
+  devices         UserDevice[]
+
+  @@map("users")
+}
+
+model UserDevice {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  platform             String    // "android" | "ios"
+  fcmToken             String?   @map("fcm_token")
+  lastSeenAt           DateTime? @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  notificationsEnabled Boolean?  @default(true) @map("notifications_enabled")
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_devices")
+}
+
+model Trip {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  destination String?         @default("")
+  startDate   DateTime?       @map("start_date") @db.Timestamptz(6)
+  endDate     DateTime?       @map("end_date") @db.Timestamptz(6)
+  currency    String?         @default("INR")
+  createdBy   String?         @map("created_by") @db.Uuid
+  status      String?         @default("ACTIVE")
+  createdAt   DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  activities  ActivityEvent[]
+  invites     TripInvite[]
+  members     TripMember[]
+  users       User?           @relation(fields: [createdBy], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  expenses    Expense[]
+  settlements Settlement[]
+
+  @@map("trips")
+}
+
+model TripMember {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripId              String              @map("trip_id") @db.Uuid
+  userId              String              @map("user_id") @db.Uuid
+  role                String?             @default("MEMBER")
+  membershipStatus    String?             @default("JOINED") @map("membership_status")
+  joinedAt            DateTime?           @default(now()) @map("joined_at") @db.Timestamptz(6)
+
+  trip                Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  allocations         ExpenseAllocation[]
+  paidExpenses        Expense[]           @relation("ExpensePayer")
+  sentSettlements     Settlement[]        @relation("SettlementSender")
+  receivedSettlements Settlement[]        @relation("SettlementReceiver")
+
+  @@unique([tripId, userId])
+  @@map("trip_members")
+}
+
+model TripInvite {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripId      String?   @map("trip_id") @db.Uuid
+  invite_code String    @unique
+  createdBy   String?   @map("created_by") @db.Uuid
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  maxUses     Int?      @default(50) @map("max_uses")
+  usesCount   Int?      @default(0) @map("uses_count")
+  status      String?   @default("ACTIVE")
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  users       User?     @relation(fields: [createdBy], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  trip        Trip?     @relation(fields: [tripId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("trip_invites")
+}
+
+model ActivityEvent {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripId       String?   @map("trip_id") @db.Uuid
+  actorUserId  String?   @map("actor_user_id") @db.Uuid
+  eventType    String    @map("event_type")
+  entityId     String?   @map("entity_id") @db.Uuid
+  metadataJson Json?     @map("metadata_json")
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  users        User?     @relation(fields: [actorUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  trip         Trip?     @relation(fields: [tripId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("activity_events")
+}
+
+// -------------------------------------------------------------
+// 2. EXPENSE ENGINE (Dev 2 Tables)
+// -------------------------------------------------------------
+
+model Expense {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripId         String              @map("trip_id") @db.Uuid
+  title          String
+  amountMinor    BigInt              @map("amount_minor") // In paise
+  currency       String?             @default("INR")
+  paidByMemberId String              @map("paid_by_member_id") @db.Uuid
+  category       String?             @default("other")
+  splitType      String?             @default("EQUAL") @map("split_type")
+  expenseDate    DateTime?           @default(now()) @map("expense_date") @db.Timestamptz(6)
+  createdBy      String?             @map("created_by") @db.Uuid
+  status         String?             @default("ACTIVE") // ACTIVE, VOIDED
+  version        Int?                @default(1)
+  createdAt      DateTime?           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  trip           Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  paidByMember   TripMember          @relation("ExpensePayer", fields: [paidByMemberId], references: [id], onDelete: Cascade)
+  allocations    ExpenseAllocation[]
+  auditLogs      ExpenseAuditLog[]
+
+  @@map("expenses")
+}
+
+model ExpenseAllocation {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  expenseId    String     @map("expense_id") @db.Uuid
+  tripMemberId String     @map("trip_member_id") @db.Uuid
+  shareMinor   BigInt     @map("share_minor") // In paise
+  shareUnits   Float?     @map("share_units")
+  percentage   Float?     @map("percentage")
+
+  expense      Expense    @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  member       TripMember @relation(fields: [tripMemberId], references: [id], onDelete: Cascade)
+
+  @@map("expense_allocations")
+}
+
+model ExpenseAuditLog {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  expenseId     String    @map("expense_id") @db.Uuid
+  actorUserId   String?   @map("actor_user_id") @db.Uuid
+  action        String    // CREATED, EDITED, VOIDED
+  oldValuesJson Json?     @map("old_values_json")
+  newValuesJson Json?     @map("new_values_json")
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  expense       Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@map("expense_audit_logs")
+}
+
+// -------------------------------------------------------------
+// 3. BALANCE LEDGER, SETTLEMENT & NOTIFICATIONS (Dev 3 Tables)
+// -------------------------------------------------------------
+
+model Settlement {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripId       String            @map("trip_id") @db.Uuid
+  fromMemberId String            @map("from_member_id") @db.Uuid
+  toMemberId   String            @map("to_member_id") @db.Uuid
+  amountMinor  BigInt            @map("amount_minor") // In paise
+  status       String?           @default("PENDING") // PENDING, CONFIRMED, DISPUTED
+  paymentNote  String?           @map("payment_note")
+  createdBy    String?           @map("created_by") @db.Uuid
+  createdAt    DateTime?         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  trip         Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  fromMember   TripMember        @relation("SettlementSender", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMember     TripMember        @relation("SettlementReceiver", fields: [toMemberId], references: [id], onDelete: Cascade)
+  events       SettlementEvent[]
+
+  @@map("settlements")
+}
+
+model SettlementEvent {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  settlementId String     @map("settlement_id") @db.Uuid
+  actorUserId  String?    @map("actor_user_id") @db.Uuid
+  eventType    String     @map("event_type") // CREATED, CONFIRMED, DISPUTED
+  note         String?
+  createdAt    DateTime?  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@map("settlement_events")
+}
+
+model Notification {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  activityEventId String?   @map("activity_event_id") @db.Uuid
+  title           String
+  message         String
+  readAt          DateTime? @map("read_at") @db.Timestamptz(6)
+  deliveryStatus  String?   @default("SENT") @map("delivery_status") // SENT, READ, FAILED
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
