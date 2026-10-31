@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -------------------------------------------------------------
+// ENUMS (Developer 2 & Shared)
+// -------------------------------------------------------------
+
+enum TripRole {
+  ADMIN
+  MEMBER
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENTAGE
+}
+
+enum AuditAction {
+  CREATED
+  EDITED
+  VOIDED
+}
+
+// -------------------------------------------------------------
+// 1. IDENTITY & USER MANAGEMENT
+// -------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String    @default("")
+  displayName   String    @default("") @map("display_name")
+  email         String    @unique
+  password_hash String?   @default("") @map("password_hash")
+  avatarUrl     String?   @default("") @map("avatar_url")
+  accountStatus String?   @default("ACTIVE") @map("account_status")
+  createdAt     DateTime? @default(now()) @map("created_at")
+  updatedAt     DateTime? @updatedAt @map("updated_at")
+
+  createdTrips    Trip[]              @relation("TripCreator")
+  trips           Trip[]              @relation("UserTrips")
+  tripMemberships TripMember[]
+  paidExpenses    Expense[]           @relation("ExpensePayer")
+  voidedExpenses  Expense[]           @relation("ExpenseVoider")
+  allocations     ExpenseAllocation[]
+  auditLogs       ExpenseAuditLog[]   @relation("AuditChangedBy")
+  notifications   Notification[]
+  devices         UserDevice[]
+  activity_events ActivityEvent[]
+  trip_invites    TripInvite[]
+
+  @@map("users")
+}
+
+model UserDevice {
+  id                   String    @id @default(cuid())
+  userId               String    @map("user_id")
+  platform             String    // "android" | "ios"
+  fcmToken             String?   @map("fcm_token")
+  lastSeenAt           DateTime? @default(now()) @map("last_seen_at")
+  notificationsEnabled Boolean?  @default(true) @map("notifications_enabled")
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_devices")
+}
+
+// -------------------------------------------------------------
+// 2. TRIPS & MEMBERSHIP
+// -------------------------------------------------------------
+
+model Trip {
+  id          String    @id @default(cuid())
+  title       String    @default("")
+  name        String    @default("")
+  description String?
+  destination String?   @default("")
+  startDate   DateTime? @map("start_date")
+  endDate     DateTime? @map("end_date")
+  currency    String?   @default("INR")
+  createdById String?   @map("created_by_id")
+  createdBy   String?   @map("created_by")
+  status      String?   @default("ACTIVE")
+  createdAt   DateTime? @default(now()) @map("created_at")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+
+  creator     User?           @relation("TripCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  users       User?           @relation("UserTrips", fields: [createdBy], references: [id], onDelete: Cascade)
+  members     TripMember[]
+  expenses    Expense[]
+  settlements Settlement[]
+  activities  ActivityEvent[]
+  invites     TripInvite[]
+
+  @@index([createdById])
+  @@index([createdBy])
+  @@map("trips")
+}
+
+model TripMember {
+  id               String    @id @default(cuid())
+  tripId           String    @map("trip_id")
+  userId           String    @map("user_id")
+  role             TripRole  @default(MEMBER)
+  membershipStatus String?   @default("JOINED") @map("membership_status")
+  joinedAt         DateTime? @default(now()) @map("joined_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  trip                Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  allocations         ExpenseAllocation[]
+  paidExpenses        Expense[]           @relation("ExpensePayerMember")
+  sentSettlements     Settlement[]        @relation("SettlementSender")
+  receivedSettlements Settlement[]        @relation("SettlementReceiver")
+
+  @@unique([tripId, userId])
+  @@index([tripId])
+  @@index([userId])
+  @@map("trip_members")
+}
+
+model TripInvite {
+  id          String    @id @default(cuid())
+  tripId      String?   @map("trip_id")
+  invite_code String    @unique
+  createdBy   String?   @map("created_by")
+  expiresAt   DateTime? @map("expires_at")
+  maxUses     Int?      @default(50) @map("max_uses")
+  usesCount   Int?      @default(0) @map("uses_count")
+  status      String?   @default("ACTIVE")
+  created_at  DateTime? @default(now())
+
+  users       User?     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  trip        Trip?     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([createdBy])
+  @@map("trip_invites")
+}
+
+model ActivityEvent {
+  id           String    @id @default(cuid())
+  tripId       String?   @map("trip_id")
+  actorUserId  String?   @map("actor_user_id")
+  eventType    String    @map("event_type")
+  entityId     String?   @map("entity_id")
+  metadataJson Json?     @map("metadata_json")
+  createdAt    DateTime? @default(now()) @map("created_at")
+
+  users        User?     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  trip         Trip?     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([actorUserId])
+  @@map("activity_events")
+}
+
+// -------------------------------------------------------------
+// 3. EXPENSE ENGINE (Developer 2 Core Models)
+// -------------------------------------------------------------
+
+model Expense {
+  id             String    @id @default(cuid())
+  tripId         String    @map("trip_id")
+  payerId        String    @map("payer_id")
+  paidByMemberId String?   @map("paid_by_member_id")
+  title          String
+  amountMinor    Int       @map("amount_minor")
+  currency       String?   @default("INR")
+  category       String    @default("general")
+  splitType      SplitType @default(EQUAL) @map("split_type")
+  version        Int       @default(1)
+  isVoid         Boolean   @default(false) @map("is_void")
+  status         String?   @default("ACTIVE")
+  voidReason     String?   @map("void_reason")
+  voidedById     String?   @map("voided_by_id")
+  expenseDate    DateTime? @default(now()) @map("expense_date")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  trip         Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer        User                @relation("ExpensePayer", fields: [payerId], references: [id], onDelete: Cascade)
+  paidByMember TripMember?         @relation("ExpensePayerMember", fields: [paidByMemberId], references: [id], onDelete: Cascade)
+  voidedBy     User?               @relation("ExpenseVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  allocations  ExpenseAllocation[]
+  auditLogs    ExpenseAuditLog[]
+
+  @@index([tripId])
+  @@index([payerId])
+  @@index([paidByMemberId])
+  @@index([isVoid])
+  @@index([status])
+  @@index([tripId, createdAt(sort: Desc)])
+  @@index([tripId, isVoid, createdAt(sort: Desc)])
+  @@index([tripId, category, isVoid, createdAt(sort: Desc)])
+  @@map("expenses")
+}
+
+model ExpenseAllocation {
+  id           String    @id @default(cuid())
+  expenseId    String    @map("expense_id")
+  userId       String    @map("user_id")
+  tripMemberId String?   @map("trip_member_id")
+  amountMinor  Int       @default(0) @map("amount_minor")
+  shareMinor   BigInt?   @map("share_minor")
+  shareUnits   Float?    @map("share_units")
+  percentage   Float?
+  shares       Float?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  expense Expense     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  member  TripMember? @relation(fields: [tripMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([expenseId, userId])
+  @@index([expenseId])
+  @@index([userId])
+  @@index([tripMemberId])
+  @@map("expense_allocations")
+}
+
+model ExpenseAuditLog {
+  id               String      @id @default(cuid())
+  expenseId        String      @map("expense_id")
+  action           AuditAction
+  changedById      String      @map("changed_by_id")
+  actorUserId      String?     @map("actor_user_id")
+  previousSnapshot Json?       @map("previous_snapshot")
+  newSnapshot      Json?       @map("new_snapshot")
+  oldValuesJson    Json?       @map("old_values_json")
+  newValuesJson    Json?       @map("new_values_json")
+  timestamp        DateTime    @default(now())
+  createdAt        DateTime?   @default(now()) @map("created_at")
+
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("AuditChangedBy", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([expenseId, timestamp(sort: Desc)])
+  @@index([changedById])
+  @@map("expense_audit_logs")
+}
+
+// -------------------------------------------------------------
+// 4. BALANCE LEDGER, SETTLEMENT & NOTIFICATIONS (Developer 3)
+// -------------------------------------------------------------
+
+model Settlement {
+  id           String            @id @default(cuid())
+  tripId       String            @map("trip_id")
+  fromMemberId String            @map("from_member_id")
+  toMemberId   String            @map("to_member_id")
+  amountMinor  BigInt            @map("amount_minor") // In paise
+  status       String?           @default("PENDING") // PENDING, CONFIRMED, DISPUTED
+  paymentNote  String?           @map("payment_note")
+  createdBy    String?           @map("created_by")
+  createdAt    DateTime?         @default(now()) @map("created_at")
+
+  trip       Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  fromMember TripMember        @relation("SettlementSender", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMember   TripMember        @relation("SettlementReceiver", fields: [toMemberId], references: [id], onDelete: Cascade)
+  events     SettlementEvent[]
+
+  @@index([tripId])
+  @@index([fromMemberId])
+  @@index([toMemberId])
+  @@map("settlements")
+}
+
+model SettlementEvent {
+  id           String     @id @default(cuid())
+  settlementId String     @map("settlement_id")
+  actorUserId  String?    @map("actor_user_id")
+  eventType    String     @map("event_type") // CREATED, CONFIRMED, DISPUTED
+  note         String?
+  createdAt    DateTime?  @default(now()) @map("created_at")
+
+  settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@map("settlement_events")
+}
+
+model Notification {
+  id              String    @id @default(cuid())
+  userId          String    @map("user_id")
+  activityEventId String?   @map("activity_event_id")
+  title           String
+  message         String
+  readAt          DateTime? @map("read_at")
+  deliveryStatus  String?   @default("SENT") @map("delivery_status") // SENT, READ, FAILED
+  createdAt       DateTime? @default(now()) @map("created_at")
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
