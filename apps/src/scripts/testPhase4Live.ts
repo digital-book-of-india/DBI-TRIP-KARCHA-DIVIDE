@@ -119,9 +119,9 @@ async function runPhase4LiveTest() {
   let caughtSelfConfirm = false;
   try {
     await confirmSettlement(settlement1.id, rahulUser.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     caughtSelfConfirm = true;
-    assert(err.status === 403, "Payer self-confirmation correctly blocked with 403 Forbidden");
+    assert((err as { status?: number }).status === 403, "Payer self-confirmation correctly blocked with 403 Forbidden");
   }
   assert(caughtSelfConfirm, "Payer must NEVER be able to confirm their own payment");
 

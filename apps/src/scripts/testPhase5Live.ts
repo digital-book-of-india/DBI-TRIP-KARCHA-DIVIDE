@@ -167,9 +167,9 @@ async function runPhase5LiveTest() {
   let caughtSecurityError = false;
   try {
     await getTripReports(trip.id, stranger.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     caughtSecurityError = true;
-    assert(err.status === 403, "Stranger access blocked with 403 Forbidden");
+    assert((err as { status?: number }).status === 403, "Stranger access blocked with 403 Forbidden");
   }
   assert(caughtSecurityError, "Non-member report access was prevented");
 

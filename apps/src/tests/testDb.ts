@@ -13,6 +13,9 @@ export const testDb = {
   expenses: new Map<string, any>(),
   allocations: new Map<string, any>(),
   auditLogs: new Map<string, any>(),
+  settlements: new Map<string, any>(),
+  settlementEvents: new Map<string, any>(),
+  notifications: new Map<string, any>(),
 
   clear() {
     this.users.clear();
@@ -21,6 +24,9 @@ export const testDb = {
     this.expenses.clear();
     this.allocations.clear();
     this.auditLogs.clear();
+    this.settlements.clear();
+    this.settlementEvents.clear();
+    this.notifications.clear();
   },
 
   addUser(user: { _id?: string; id?: string; name: string; email: string; passwordHash?: string }) {
@@ -37,12 +43,13 @@ export const testDb = {
     return doc;
   },
 
-  addTrip(trip: { _id?: string; id?: string; title: string; createdBy?: string; createdById?: string; currency?: string }) {
+  addTrip(trip: { _id?: string; id?: string; title: string; name?: string; createdBy?: string; createdById?: string; currency?: string }) {
     const id = trip.id || trip._id || createTestId();
     const createdById = trip.createdById || trip.createdBy || "";
     const doc = {
       id,
       title: trip.title,
+      name: trip.name || trip.title,
       createdById,
       currency: trip.currency || "INR",
       createdAt: new Date(),
@@ -122,26 +129,70 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
     trip: {
       async findUnique(args: any) {
         const found = testDb.trips.get(args.where.id);
-        return found ? { ...found } : null;
+        if (!found) return null;
+        if (args.select) {
+          const res: any = {};
+          for (const [k, v] of Object.entries(args.select)) {
+            if (v) res[k] = found[k];
+          }
+          return res;
+        }
+        if (args.include?.members) {
+          const res: any = { ...found };
+          const members: any[] = [];
+          for (const tm of testDb.tripMembers.values()) {
+            if (tm.tripId !== found.id) continue;
+            const mRes: any = { ...tm };
+            if (args.include.members.include?.user) {
+              const u = testDb.users.get(tm.userId);
+              mRes.user = u ? { ...u } : null;
+            }
+            members.push(mRes);
+          }
+          res.members = members;
+          return res;
+        }
+        return { ...found };
       },
     },
 
     tripMember: {
+      async create(args: any) {
+        const id = args.data.id || createTestId();
+        const doc = {
+          id,
+          tripId: args.data.tripId,
+          userId: args.data.userId,
+          role: args.data.role ?? "MEMBER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        testDb.tripMembers.set(`${doc.tripId}_${doc.userId}`, doc);
+        return { ...doc };
+      },
+
       async findUnique(args: any) {
         const key = args.where?.tripId_userId;
+        let found: any = null;
         if (key) {
-          const found = testDb.tripMembers.get(`${key.tripId}_${key.userId}`);
-          if (!found) return null;
-          if (args.select) {
-            const res: any = {};
-            for (const [k, v] of Object.entries(args.select)) {
-              if (v) res[k] = found[k];
-            }
-            return res;
-          }
-          return { ...found };
+          found = testDb.tripMembers.get(`${key.tripId}_${key.userId}`);
+        } else if (args.where?.id) {
+          found = [...testDb.tripMembers.values()].find((m) => m.id === args.where.id);
         }
-        return null;
+        if (!found) return null;
+        if (args.select) {
+          const res: any = {};
+          for (const [k, v] of Object.entries(args.select)) {
+            if (v) res[k] = found[k];
+          }
+          return res;
+        }
+        const res: any = { ...found };
+        if (args.include?.user) {
+          const u = testDb.users.get(found.userId);
+          res.user = u ? { ...u } : null;
+        }
+        return res;
       },
       async findMany(args: any) {
         const tripId = args?.where?.tripId;
@@ -157,7 +208,20 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
             }
             results.push(res);
           } else {
-            results.push({ ...tm });
+            const res: any = { ...tm };
+            if (args?.include?.user) {
+              const u = testDb.users.get(tm.userId);
+              if (u && args.include.user.select) {
+                const uRes: any = {};
+                for (const [k, v] of Object.entries(args.include.user.select)) {
+                  if (v) uRes[k] = (u as any)[k === "displayName" ? "name" : k] ?? (u as any)[k];
+                }
+                res.user = uRes;
+              } else {
+                res.user = u ? { ...u } : null;
+              }
+            }
+            results.push(res);
           }
         }
         return results;
@@ -172,6 +236,9 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           tripId: args.data.tripId,
           payerId: args.data.payerId,
           title: args.data.title,
+          note: args.data.note ?? null,
+          receiptUrl: args.data.receiptUrl ?? null,
+          idempotencyKey: args.data.idempotencyKey ?? null,
           amountMinor: args.data.amountMinor,
           category: args.data.category,
           splitType: args.data.splitType,
@@ -212,7 +279,15 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
       },
 
       async findUnique(args: any) {
-        const found = testDb.expenses.get(args.where.id);
+        let found: any = null;
+        if (args.where?.id) {
+          found = testDb.expenses.get(args.where.id);
+        } else if (args.where?.tripId_idempotencyKey) {
+          const { tripId, idempotencyKey } = args.where.tripId_idempotencyKey;
+          found = [...testDb.expenses.values()].find(
+            (e: any) => e.tripId === tripId && e.idempotencyKey === idempotencyKey && idempotencyKey != null
+          );
+        }
         if (!found) return null;
         const res: any = { ...found };
 
@@ -457,6 +532,171 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           results.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
         }
         return results;
+      },
+    },
+
+    settlement: {
+      async create(args: any) {
+        const id = args.data.id || createTestId();
+        const doc = {
+          id,
+          tripId: args.data.tripId,
+          fromMemberId: args.data.fromMemberId,
+          toMemberId: args.data.toMemberId,
+          amountMinor: BigInt(args.data.amountMinor),
+          status: args.data.status ?? "PENDING",
+          paymentNote: args.data.paymentNote ?? null,
+          createdBy: args.data.createdBy ?? null,
+          createdAt: new Date(),
+        };
+        testDb.settlements.set(id, doc);
+        return { ...doc };
+      },
+      async findUnique(args: any) {
+        const found = testDb.settlements.get(args.where.id);
+        if (!found) return null;
+        const res: any = { ...found };
+        if (args.include?.fromMember) {
+          const fm = testDb.tripMembers.get(`${found.tripId}_${found.fromMemberId}`) ||
+            [...testDb.tripMembers.values()].find((m) => m.id === found.fromMemberId);
+          res.fromMember = fm ? { ...fm, user: testDb.users.get(fm.userId) ? { ...testDb.users.get(fm.userId) } : null } : null;
+        }
+        if (args.include?.toMember) {
+          const tm = [...testDb.tripMembers.values()].find((m) => m.id === found.toMemberId);
+          res.toMember = tm ? { ...tm, user: testDb.users.get(tm.userId) ? { ...testDb.users.get(tm.userId) } : null } : null;
+        }
+        if (args.include?.events) {
+          res.events = [...testDb.settlementEvents.values()]
+            .filter((e) => e.settlementId === found.id)
+            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        }
+        return res;
+      },
+      async findMany(args: any) {
+        const where = args?.where || {};
+        const results: any[] = [];
+        for (const s of testDb.settlements.values()) {
+          if (where.tripId && s.tripId !== where.tripId) continue;
+          if (where.status && s.status !== where.status) continue;
+          const res: any = { ...s };
+          if (args?.include?.fromMember) {
+            const fm = [...testDb.tripMembers.values()].find((m) => m.id === s.fromMemberId);
+            res.fromMember = fm ? { ...fm, user: testDb.users.get(fm.userId) ? { ...testDb.users.get(fm.userId) } : null } : null;
+          }
+          if (args?.include?.toMember) {
+            const tm = [...testDb.tripMembers.values()].find((m) => m.id === s.toMemberId);
+            res.toMember = tm ? { ...tm, user: testDb.users.get(tm.userId) ? { ...testDb.users.get(tm.userId) } : null } : null;
+          }
+          if (args?.include?.events) {
+            res.events = [...testDb.settlementEvents.values()].filter((e) => e.settlementId === s.id);
+          }
+          results.push(res);
+        }
+        if (args?.orderBy?.createdAt === "desc") {
+          results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        }
+        return results;
+      },
+      async update(args: any) {
+        const found = testDb.settlements.get(args.where.id);
+        if (!found) throw new Error("Settlement not found");
+        Object.assign(found, args.data);
+        testDb.settlements.set(found.id, found);
+        return { ...found };
+      },
+    },
+
+    settlementEvent: {
+      async create(args: any) {
+        const id = args.data.id || createTestId();
+        const doc = {
+          id,
+          settlementId: args.data.settlementId,
+          actorUserId: args.data.actorUserId ?? null,
+          eventType: args.data.eventType,
+          note: args.data.note ?? null,
+          createdAt: new Date(),
+        };
+        testDb.settlementEvents.set(id, doc);
+        return { ...doc };
+      },
+    },
+
+    notification: {
+      async create(args: any) {
+        const id = args.data.id || createTestId();
+        const doc = {
+          id,
+          userId: args.data.userId,
+          activityEventId: args.data.activityEventId ?? null,
+          title: args.data.title,
+          message: args.data.message,
+          readAt: args.data.readAt ?? null,
+          deliveryStatus: args.data.deliveryStatus ?? "SENT",
+          createdAt: new Date(),
+        };
+        testDb.notifications.set(id, doc);
+        return { ...doc };
+      },
+      async createMany(args: any) {
+        let count = 0;
+        for (const d of args.data) {
+          const id = d.id || createTestId();
+          const doc = {
+            id,
+            userId: d.userId,
+            activityEventId: d.activityEventId ?? null,
+            title: d.title,
+            message: d.message,
+            readAt: d.readAt ?? null,
+            deliveryStatus: d.deliveryStatus ?? "SENT",
+            createdAt: new Date(),
+          };
+          testDb.notifications.set(id, doc);
+          count++;
+        }
+        return { count };
+      },
+      async findMany(args: any) {
+        const where = args?.where || {};
+        let results = [...testDb.notifications.values()].filter((n) => {
+          if (where.userId && n.userId !== where.userId) return false;
+          if ("readAt" in where && where.readAt === null && n.readAt !== null) return false;
+          return true;
+        });
+        results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        if (args?.take) results = results.slice(0, args.take);
+        return results.map((n) => ({ ...n }));
+      },
+      async findUnique(args: any) {
+        const found = testDb.notifications.get(args.where.id);
+        return found ? { ...found } : null;
+      },
+      async count(args: any) {
+        const where = args?.where || {};
+        return [...testDb.notifications.values()].filter((n) => {
+          if (where.userId && n.userId !== where.userId) return false;
+          if ("readAt" in where && where.readAt === null && n.readAt !== null) return false;
+          return true;
+        }).length;
+      },
+      async update(args: any) {
+        const found = testDb.notifications.get(args.where.id);
+        if (!found) throw new Error("Notification not found");
+        Object.assign(found, args.data);
+        testDb.notifications.set(found.id, found);
+        return { ...found };
+      },
+      async updateMany(args: any) {
+        const where = args?.where || {};
+        let count = 0;
+        for (const n of testDb.notifications.values()) {
+          if (where.userId && n.userId !== where.userId) continue;
+          if ("readAt" in where && where.readAt === null && n.readAt !== null) continue;
+          Object.assign(n, args.data);
+          count++;
+        }
+        return { count };
       },
     },
 

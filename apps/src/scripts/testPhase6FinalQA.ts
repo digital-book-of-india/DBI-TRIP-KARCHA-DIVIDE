@@ -188,9 +188,9 @@ async function runFinalQAAcceptanceTest() {
   let caughtNotifHack = false;
   try {
     await markNotificationAsRead(paymentNotif.id, simran.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     caughtNotifHack = true;
-    assert(err.status === 403, "Stranger blocked from marking another user's notification as read (403)");
+    assert((err as { status?: number }).status === 403, "Stranger blocked from marking another user's notification as read (403)");
   }
   assert(caughtNotifHack, "Notification privacy guard verified");
 
@@ -252,9 +252,9 @@ async function runFinalQAAcceptanceTest() {
   let caughtReport = false;
   let caughtSettlements = false;
 
-  try { await getTripBalances(trip.id, stranger.id); } catch (err: any) { caughtBal = err.status === 403; }
-  try { await getTripReports(trip.id, stranger.id); } catch (err: any) { caughtReport = err.status === 403; }
-  try { await getTripSettlements(trip.id, stranger.id); } catch (err: any) { caughtSettlements = err.status === 403; }
+  try { await getTripBalances(trip.id, stranger.id); } catch (err: unknown) { caughtBal = (err as { status?: number }).status === 403; }
+  try { await getTripReports(trip.id, stranger.id); } catch (err: unknown) { caughtReport = (err as { status?: number }).status === 403; }
+  try { await getTripSettlements(trip.id, stranger.id); } catch (err: unknown) { caughtSettlements = (err as { status?: number }).status === 403; }
 
   assert(caughtBal, "Non-member blocked from trip balances (403)");
   assert(caughtReport, "Non-member blocked from trip reports (403)");

@@ -1,4 +1,5 @@
 import prisma from "../prisma";
+import { HttpError } from "../apiError";
 import { getTripBalances } from "./balanceService";
 
 export interface CategorySummary {
@@ -66,23 +67,22 @@ export async function getTripReports(
   });
 
   if (!trip) {
-    const error: any = new Error("Trip not found");
-    error.status = 404;
-    throw error;
+    throw new HttpError("Trip not found", 404);
   }
 
   const isMember = trip.members.some((m) => m.userId === actorUserId);
   if (!isMember) {
-    const error: any = new Error("Forbidden: You are not a member of this trip");
-    error.status = 403;
-    throw error;
+    throw new HttpError("Forbidden: You are not a member of this trip", 403);
   }
 
-  // 2. Fetch all ACTIVE expenses
+  // 2. Fetch all active (non-voided) expenses.
+  // `isVoid` is the field the void endpoint actually toggles; `status` is
+  // never updated by it, so filtering on `status` would wrongly include
+  // voided expenses in category/spend totals.
   const expenses = await prisma.expense.findMany({
     where: {
       tripId,
-      status: "ACTIVE",
+      isVoid: false,
     },
   });
 
@@ -180,5 +180,41 @@ export async function getTripReports(
     categories,
     perPerson,
   };
+}
+
+function csvCell(value: string | number): string {
+  const str = String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+/**
+ * Renders a trip report as CSV text (export/share summary -- PDF spec:
+ * "Reports: ... export/share summary" and "Trip Summary: ... share/export").
+ * Pure function so it is independently unit-testable.
+ */
+export function buildTripReportCsv(report: TripReportResult): string {
+  const lines: string[] = [];
+
+  lines.push(`Trip,${csvCell(report.summaryCard.tripName)}`);
+  lines.push(`Currency,${csvCell(report.summaryCard.currency)}`);
+  lines.push(`Total spent,${csvCell(report.summaryCard.totalSpent)}`);
+  lines.push(`Total expenses,${csvCell(report.summaryCard.totalExpensesCount)}`);
+  lines.push(`Fully settled,${csvCell(report.summaryCard.isFullySettled ? "Yes" : "No")}`);
+  lines.push("");
+
+  lines.push("Category,Total,Percentage,Expense Count");
+  for (const c of report.categories) {
+    lines.push([csvCell(c.category), csvCell(c.total), csvCell(`${c.percentage}%`), csvCell(c.expenseCount)].join(","));
+  }
+  lines.push("");
+
+  lines.push("Member,Total Paid,Total Share,Net Balance,Status");
+  for (const p of report.perPerson) {
+    lines.push(
+      [csvCell(p.name), csvCell(p.totalPaid), csvCell(p.totalPersonalShare), csvCell(p.netBalance), csvCell(p.status)].join(",")
+    );
+  }
+
+  return lines.join("\n");
 }
 

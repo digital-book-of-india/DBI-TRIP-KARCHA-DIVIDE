@@ -4,6 +4,7 @@ import {
   getUserNotifications,
   markAllNotificationsAsRead,
 } from "@/lib/notifications/notificationService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,12 +29,8 @@ export async function GET(req: NextRequest) {
       success: true,
       data,
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to fetch notifications" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to fetch notifications");
   }
 }
 
@@ -54,12 +51,8 @@ export async function POST(req: NextRequest) {
       data: result,
       message: `Marked ${result.markedReadCount} notifications as read`,
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to mark notifications as read" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to mark notifications as read");
   }
 }
 

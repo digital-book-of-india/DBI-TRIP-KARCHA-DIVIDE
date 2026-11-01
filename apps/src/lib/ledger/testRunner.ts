@@ -4,7 +4,6 @@ import type {
   LedgerSettlementItem,
 } from "../../types/ledger";
 import { computeTripBalances } from "./balanceEngine";
-import { simplifyDebts } from "./debtSimplifier";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

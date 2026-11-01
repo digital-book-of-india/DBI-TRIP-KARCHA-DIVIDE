@@ -44,7 +44,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ tripId: 
     data: {
       trip: tripRes.rows[0],
       currentUserRole: checkMember.rows[0].role,
-      members: membersRes.rows.map((m: any) => ({
+      members: membersRes.rows.map((m) => ({
         memberId: m.member_id,
         userId: m.user_id,
         displayName: m.display_name,

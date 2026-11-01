@@ -132,6 +132,7 @@ model TripInvite {
   id          String    @id @default(cuid())
   tripId      String?   @map("trip_id")
   invite_code String    @unique
+  inviteeEmail String?  @map("invitee_email")
   createdBy   String?   @map("created_by")
   expiresAt   DateTime? @map("expires_at")
   maxUses     Int?      @default(50) @map("max_uses")
@@ -174,6 +175,8 @@ model Expense {
   payerId        String    @map("payer_id")
   paidByMemberId String?   @map("paid_by_member_id")
   title          String
+  note           String?
+  receiptUrl     String?   @map("receipt_url")
   amountMinor    Int       @map("amount_minor")
   currency       String?   @default("INR")
   category       String    @default("general")
@@ -183,6 +186,7 @@ model Expense {
   status         String?   @default("ACTIVE")
   voidReason     String?   @map("void_reason")
   voidedById     String?   @map("voided_by_id")
+  idempotencyKey String?   @map("idempotency_key")
   expenseDate    DateTime? @default(now()) @map("expense_date")
   createdBy      String?   @map("created_by")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -195,6 +199,7 @@ model Expense {
   allocations  ExpenseAllocation[]
   auditLogs    ExpenseAuditLog[]
 
+  @@unique([tripId, idempotencyKey])
   @@index([tripId])
   @@index([payerId])
   @@index([paidByMemberId])

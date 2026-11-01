@@ -1,14 +1,13 @@
 import { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
 import { prisma } from "../db";
+import { JWT_SECRET } from "../jwtSecret";
 
 export interface AuthenticatedUser {
   userId: string;
   email?: string;
   name?: string;
 }
-
-const JWT_SECRET = process.env.JWT_SECRET || "dbi_trip_karcha_jwt_secret_key_2026";
 
 /**
  * Validates identifier format (CUID, UUID, or 24-char hex string).
@@ -55,14 +54,18 @@ export function getAuthenticatedUser(request: NextRequest | Request): Authentica
     }
   }
 
-  // Support x-user-id in test or development mode
-  const xUserId = request.headers.get("x-user-id");
-  if (xUserId && isValidId(xUserId)) {
-    return {
-      userId: xUserId,
-      email: request.headers.get("x-user-email") ?? undefined,
-      name: request.headers.get("x-user-name") ?? undefined,
-    };
+  // SECURITY: the x-user-id bypass is for local/test/dev use only. It must
+  // never be honored in production, or any caller could impersonate any user
+  // by simply setting a header, completely defeating JWT authentication.
+  if (process.env.NODE_ENV !== "production") {
+    const xUserId = request.headers.get("x-user-id");
+    if (xUserId && isValidId(xUserId)) {
+      return {
+        userId: xUserId,
+        email: request.headers.get("x-user-email") ?? undefined,
+        name: request.headers.get("x-user-name") ?? undefined,
+      };
+    }
   }
 
   return null;

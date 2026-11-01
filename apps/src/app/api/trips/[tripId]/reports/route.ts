@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { getTripReports } from "@/lib/ledger/reportService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function GET(
   req: NextRequest,
@@ -23,12 +24,8 @@ export async function GET(
       success: true,
       data: report,
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to generate trip report" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to generate trip report");
   }
 }
 

@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { signToken } from "@/lib/auth";
 import { SignupSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { syncPlatformAdminStatus } from "@/lib/admin/adminAuth";
 
 export async function POST(req: Request) {
   try {
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
     );
 
     const user = result.rows[0];
+    await syncPlatformAdminStatus(user.id, user.email);
     const token = signToken({ userId: user.id, email: user.email });
 
     return NextResponse.json(

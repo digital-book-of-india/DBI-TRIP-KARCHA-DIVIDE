@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { markNotificationAsRead } from "@/lib/notifications/notificationService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function PATCH(
   req: NextRequest,
@@ -24,12 +25,8 @@ export async function PATCH(
       data: updated,
       message: "Notification marked as read",
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to mark notification as read" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to mark notification as read");
   }
 }
 

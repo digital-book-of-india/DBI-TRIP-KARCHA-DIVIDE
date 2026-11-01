@@ -200,9 +200,9 @@ async function runLiveTest() {
   let caughtAuthError = false;
   try {
     await getTripBalances(trip.id, strangerUser.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     caughtAuthError = true;
-    assert(err.status === 403, "Correctly rejected non-member with 403 Forbidden");
+    assert((err as { status?: number }).status === 403, "Correctly rejected non-member with 403 Forbidden");
   }
   assert(caughtAuthError, "Non-member must never access trip balance data");
 

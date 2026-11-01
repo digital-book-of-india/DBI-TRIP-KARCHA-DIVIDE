@@ -2,6 +2,8 @@
 import crypto from "crypto";
 import { query, getClient, logActivity } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth";
+import { notifyTripMembers } from "@/lib/notifications/notifyTrip";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 // 1. PUBLIC INVITE PREVIEW (NO AUTH REQUIRED)
 export async function GET(req: Request) {
@@ -47,6 +49,11 @@ export async function POST(req: Request) {
   const auth = await getAuthUser();
   if (!auth) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { allowed } = checkRateLimit(`join_${auth.userId}`, 20, 60000);
+  if (!allowed) {
+    return NextResponse.json({ success: false, error: "Too many join attempts. Please wait a moment." }, { status: 429 });
   }
 
   try {
@@ -116,18 +123,31 @@ export async function POST(req: Request) {
       });
 
       await client.query("COMMIT");
+
+      // "Member joined" notification to the rest of the group (best-effort,
+      // outside the pg transaction above since Notification is Prisma-managed).
+      const joinerRes = await query("SELECT display_name FROM users WHERE id = $1", [auth.userId]);
+      const joinerName = joinerRes.rows[0]?.display_name || "A member";
+      await notifyTripMembers({
+        tripId: trip.id,
+        excludeUserId: auth.userId,
+        title: "Member joined",
+        message: `${joinerName} joined ${trip.name}.`,
+      });
+
       return NextResponse.json({
         success: true,
         message: `Successfully joined ${trip.name}`,
         data: { tripId: trip.id, tripName: trip.name },
       });
-    } catch (joinErr: any) {
+    } catch (joinErr: unknown) {
       await client.query("ROLLBACK");
       throw joinErr;
     } finally {
       client.release();
     }
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to join trip";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

@@ -6,6 +6,7 @@ import {
   ApiError,
   RawAllocationInput,
 } from "../../../../../services/expenseService";
+import { checkRateLimit } from "../../../../../lib/rateLimit";
 
 interface RouteContext {
   params: Promise<{ tripId: string }>;
@@ -18,6 +19,8 @@ interface CreateExpenseRequestBody {
   payerId: string;
   splitType: "EQUAL" | "EXACT" | "PERCENTAGE";
   allocations: RawAllocationInput[];
+  note?: string;
+  receiptUrl?: string;
 }
 
 /**
@@ -34,6 +37,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const { allowed } = checkRateLimit(`expense_write_${authUser.userId}`, 30, 60000);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: "Too many expense writes. Please wait a moment." },
+        { status: 429 }
+      );
+    }
+
     const { tripId } = await context.params;
 
     let body: CreateExpenseRequestBody;
@@ -46,6 +57,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
+
     const result = await createExpenseTransactional({
       requestingUserId: authUser.userId,
       tripId,
@@ -55,6 +68,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       payerId: body.payerId,
       splitType: body.splitType,
       allocations: body.allocations,
+      note: body.note,
+      receiptUrl: body.receiptUrl,
+      idempotencyKey,
     });
 
     return NextResponse.json(
@@ -62,7 +78,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         success: true,
         data: result,
       },
-      { status: 201 }
+      { status: result.idempotentReplay ? 200 : 201 }
     );
   } catch (error: unknown) {
     if (error instanceof ApiError) {

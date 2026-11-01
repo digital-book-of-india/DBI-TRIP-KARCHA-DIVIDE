@@ -1,4 +1,5 @@
 import prisma from "../prisma";
+import { HttpError } from "../apiError";
 import { computeTripBalances } from "./balanceEngine";
 import {
   TripMemberInfo,
@@ -51,9 +52,7 @@ export async function getTripBalances(
   });
 
   if (!trip) {
-    const error: any = new Error(`Trip with ID '${tripId}' not found`);
-    error.status = 404;
-    throw error;
+    throw new HttpError(`Trip with ID '${tripId}' not found`, 404);
   }
 
   // 2. Fetch all Members
@@ -75,17 +74,14 @@ export async function getTripBalances(
   if (requestingUserId) {
     const isMember = members.some((m) => m.userId === requestingUserId);
     if (!isMember) {
-      const error: any = new Error("Access Denied: You are not a member of this trip");
-      error.status = 403;
-      throw error;
+      throw new HttpError("Access Denied: You are not a member of this trip", 403);
     }
   }
 
-  // 3. Fetch all ACTIVE Expenses & Allocations
+  // 3. Fetch all expenses (voided ones are filtered out below) & allocations
   const expenses = await prisma.expense.findMany({
     where: {
       tripId,
-      status: "ACTIVE",
     },
     include: {
       allocations: true,
@@ -100,7 +96,22 @@ export async function getTripBalances(
     },
   });
 
-  // 5. Map data into the Pure Ledger Engine format
+  // 5. Map data into the Pure Ledger Engine format.
+  //
+  // BUG FIX: The expense-creation service (Developer 2) records who paid and
+  // who owes a share using User IDs (`Expense.payerId`, `ExpenseAllocation.userId`
+  // + `amountMinor`), not the parallel `paidByMemberId` / `tripMemberId` /
+  // `shareMinor` columns this ledger engine used to read. Those columns are
+  // never populated, so every payer credit and participant debit silently
+  // resolved to nothing and every computed balance was 0 regardless of real
+  // spend. We resolve the authoritative User ID columns to TripMember IDs
+  // here instead, and use `isVoid` (the field the void endpoint actually
+  // toggles) to exclude voided expenses rather than the unused `status` field.
+  const userIdToMemberId = new Map<string, string>();
+  for (const m of members) {
+    userIdToMemberId.set(m.userId, m.id);
+  }
+
   const ledgerMembers: TripMemberInfo[] = members.map((m) => ({
     id: m.id,
     name: m.user?.displayName || "Member",
@@ -110,11 +121,11 @@ export async function getTripBalances(
     id: exp.id,
     title: exp.title,
     amountMinor: Number(exp.amountMinor),
-    paidByMemberId: exp.paidByMemberId || "",
-    status: (exp.status as "ACTIVE" | "VOIDED") || "ACTIVE",
+    paidByMemberId: userIdToMemberId.get(exp.payerId) || "",
+    status: exp.isVoid ? "VOIDED" : "ACTIVE",
     allocations: exp.allocations.map((a) => ({
-      tripMemberId: a.tripMemberId || "",
-      shareMinor: Number(a.shareMinor),
+      tripMemberId: userIdToMemberId.get(a.userId) || "",
+      shareMinor: Number(a.amountMinor),
     })),
   }));
 

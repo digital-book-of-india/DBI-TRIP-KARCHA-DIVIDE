@@ -2,8 +2,7 @@
 import { NextRequest } from "next/server";
 import { headers } from "next/headers";
 import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || "dbi-trip-karcha-divide-secret-key-2026";
+import { JWT_SECRET } from "./jwtSecret";
 
 export interface AuthUser {
   userId: string;
@@ -32,9 +31,13 @@ export function getAuthenticatedUser(req: NextRequest): AuthUser | null {
     }
   }
 
-  const devUserId = req.headers.get("x-user-id");
-  if (devUserId) {
-    return { userId: devUserId };
+  // SECURITY: the x-user-id bypass is for local/test/dev use only. It must
+  // never be honored in production, or any caller could impersonate any user.
+  if (process.env.NODE_ENV !== "production") {
+    const devUserId = req.headers.get("x-user-id");
+    if (devUserId) {
+      return { userId: devUserId };
+    }
   }
 
   return null;
@@ -62,9 +65,11 @@ export async function getAuthUser(): Promise<AuthUser | null> {
     }
   }
 
-  const devUserId = reqHeaders.get("x-user-id");
-  if (devUserId) {
-    return { userId: devUserId };
+  if (process.env.NODE_ENV !== "production") {
+    const devUserId = reqHeaders.get("x-user-id");
+    if (devUserId) {
+      return { userId: devUserId };
+    }
   }
 
   return null;

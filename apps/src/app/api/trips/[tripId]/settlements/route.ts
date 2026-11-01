@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { createSettlement, getTripSettlements } from "@/lib/ledger/settlementService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function POST(
   req: NextRequest,
@@ -47,12 +48,8 @@ export async function POST(
       },
       { status: 201 }
     );
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to create settlement" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to create settlement");
   }
 }
 
@@ -77,12 +74,8 @@ export async function GET(
       success: true,
       data: settlements,
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to fetch settlements" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to fetch settlements");
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { disputeSettlement } from "@/lib/ledger/settlementService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function POST(
   req: NextRequest,
@@ -32,12 +33,8 @@ export async function POST(
       data: updatedSettlement,
       message: "Payment marked as DISPUTED.",
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to dispute settlement" },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to dispute settlement");
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { getTripBalances } from "@/lib/ledger/balanceService";
+import { errorResponse } from "@/lib/apiError";
 
 export async function GET(
   req: NextRequest,
@@ -35,15 +36,8 @@ export async function GET(
       success: true,
       data: balancesData,
     });
-  } catch (err: any) {
-    const status = err.status || 500;
-    return NextResponse.json(
-      {
-        success: false,
-        error: err.message || "Failed to calculate trip balances",
-      },
-      { status }
-    );
+  } catch (err: unknown) {
+    return errorResponse(err, "Failed to calculate trip balances");
   }
 }
 

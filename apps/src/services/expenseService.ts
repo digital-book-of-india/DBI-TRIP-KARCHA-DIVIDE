@@ -7,6 +7,7 @@ import {
   SplitAllocationResult,
 } from "../lib/splits/splitEngine";
 import { isTripMember, isValidId } from "../lib/auth/authMiddleware";
+import { notifyTripMembers, notifyUsersIndividually } from "../lib/notifications/notifyTrip";
 
 export class ApiError extends Error {
   public readonly statusCode: number;
@@ -36,6 +37,18 @@ export interface CreateExpenseParams {
   payerId: string;
   splitType: "EQUAL" | "EXACT" | "PERCENTAGE";
   allocations: RawAllocationInput[];
+  /** Optional free-text note about the expense (PDF spec: "optional note/photo"). */
+  note?: string;
+  /** Optional receipt image URL, obtained from POST /api/uploads/receipts/sign. */
+  receiptUrl?: string;
+  /**
+   * Optional client-supplied idempotency key. A retried request (same trip +
+   * same key, e.g. after a timeout on a flaky connection) returns the
+   * originally-created expense instead of creating a duplicate. Enforced by
+   * a DB-level unique constraint on (tripId, idempotencyKey), so it is race
+   * safe even under truly concurrent retries.
+   */
+  idempotencyKey?: string;
   _testFailurePoint?: "after_expense" | "after_allocations" | "during_audit";
 }
 
@@ -44,6 +57,8 @@ export interface CreatedExpenseData {
   tripId: string;
   payerId: string;
   title: string;
+  note?: string | null;
+  receiptUrl?: string | null;
   amountMinor: number;
   category: string;
   splitType: string;
@@ -56,6 +71,8 @@ export interface CreatedExpenseData {
     shares?: number;
   }[];
   createdAt: Date;
+  /** True when this call returned a previously-created expense via idempotency key, not a new one. */
+  idempotentReplay?: boolean;
 }
 
 export interface EditExpenseParams {
@@ -68,6 +85,8 @@ export interface EditExpenseParams {
   payerId?: string;
   splitType?: "EQUAL" | "EXACT" | "PERCENTAGE";
   allocations?: RawAllocationInput[];
+  note?: string;
+  receiptUrl?: string;
   _testFailurePoint?: "after_update" | "after_allocations" | "during_audit";
 }
 
@@ -76,6 +95,8 @@ export interface EditedExpenseData {
   tripId: string;
   payerId: string;
   title: string;
+  note?: string | null;
+  receiptUrl?: string | null;
   amountMinor: number;
   category: string;
   splitType: string;
@@ -151,6 +172,8 @@ export interface ExpenseDetailResult {
   expenseId: string;
   tripId: string;
   title: string;
+  note?: string | null;
+  receiptUrl?: string | null;
   amountMinor: number;
   category: string;
   splitType: string;
@@ -408,10 +431,51 @@ export async function createExpenseTransactional(
     category,
     splitType,
     allocations,
+    idempotencyKey,
+    note,
+    receiptUrl,
   } = params;
+
+  if (receiptUrl !== undefined && receiptUrl !== null && receiptUrl !== "") {
+    try {
+      new URL(receiptUrl);
+    } catch {
+      throw new ApiError("receiptUrl must be a valid URL", 400, "INVALID_RECEIPT_URL");
+    }
+  }
 
   if (!isValidId(tripId)) {
     throw new ApiError("Invalid tripId format", 400, "INVALID_TRIP_ID");
+  }
+
+  if (idempotencyKey) {
+    const existing = await prisma.expense.findUnique({
+      where: { tripId_idempotencyKey: { tripId, idempotencyKey } },
+      include: { allocations: true },
+    });
+    if (existing) {
+      return {
+        expenseId: existing.id,
+        tripId: existing.tripId,
+        payerId: existing.payerId,
+        title: existing.title,
+        note: existing.note,
+        receiptUrl: existing.receiptUrl,
+        amountMinor: existing.amountMinor,
+        category: existing.category,
+        splitType: existing.splitType,
+        version: existing.version,
+        isVoid: existing.isVoid,
+        allocations: existing.allocations.map((a) => ({
+          userId: a.userId,
+          amountMinor: a.amountMinor,
+          percentage: a.percentage ?? undefined,
+          shares: a.shares ?? undefined,
+        })),
+        createdAt: existing.createdAt,
+        idempotentReplay: true,
+      };
+    }
   }
 
   if (!isValidId(payerId)) {
@@ -437,16 +501,20 @@ export async function createExpenseTransactional(
     allocations
   );
 
-  return await prisma.$transaction(async (tx) => {
+  try {
+    return await prisma.$transaction(async (tx) => {
     // 1. Create Expense
     const expense = await tx.expense.create({
       data: {
         tripId,
         payerId,
         title: title.trim(),
+        note: note?.trim() || null,
+        receiptUrl: receiptUrl?.trim() || null,
         amountMinor,
         category: category.trim(),
         splitType: splitType as SplitType,
+        idempotencyKey: idempotencyKey || null,
         version: 1,
         isVoid: false,
       },
@@ -506,11 +574,26 @@ export async function createExpenseTransactional(
       },
     });
 
+    // "New expense" notification, personalized per participant's own share,
+    // skipping the actor who created it (PDF spec: "Avoid notifying the
+    // actor about their own expense unless they opted in").
+    const payerUser = await tx.user.findUnique({ where: { id: payerId }, select: { displayName: true } });
+    const payerName = payerUser?.displayName || "A member";
+    const recipients = calculatedAllocations
+      .filter((a) => a.userId !== requestingUserId)
+      .map((a) => ({
+        userId: a.userId,
+        message: `${payerName} added ₹${(amountMinor / 100).toFixed(2)} for ${title.trim()}. Your share: ₹${(a.amountMinor / 100).toFixed(2)}.`,
+      }));
+    await notifyUsersIndividually(recipients, "New expense added", tx);
+
     return {
       expenseId: expense.id,
       tripId,
       payerId,
       title: expense.title,
+      note: expense.note,
+      receiptUrl: expense.receiptUrl,
       amountMinor: expense.amountMinor,
       category: expense.category,
       splitType: expense.splitType,
@@ -524,7 +607,47 @@ export async function createExpenseTransactional(
       })),
       createdAt: expense.createdAt,
     };
-  });
+    });
+  } catch (err: unknown) {
+    // Race-safety net: two near-simultaneous retries with the same
+    // idempotency key can both pass the pre-check above; the DB-level
+    // unique constraint on (tripId, idempotencyKey) rejects the loser, which
+    // we resolve here by returning the winner's expense instead of a 500.
+    if (
+      idempotencyKey &&
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing = await prisma.expense.findUnique({
+        where: { tripId_idempotencyKey: { tripId, idempotencyKey } },
+        include: { allocations: true },
+      });
+      if (existing) {
+        return {
+          expenseId: existing.id,
+          tripId: existing.tripId,
+          payerId: existing.payerId,
+          title: existing.title,
+          note: existing.note,
+          receiptUrl: existing.receiptUrl,
+          amountMinor: existing.amountMinor,
+          category: existing.category,
+          splitType: existing.splitType,
+          version: existing.version,
+          isVoid: existing.isVoid,
+          allocations: existing.allocations.map((a) => ({
+            userId: a.userId,
+            amountMinor: a.amountMinor,
+            percentage: a.percentage ?? undefined,
+            shares: a.shares ?? undefined,
+          })),
+          createdAt: existing.createdAt,
+          idempotentReplay: true,
+        };
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -598,6 +721,16 @@ export async function editExpenseTransactional(
     | "EQUAL"
     | "EXACT"
     | "PERCENTAGE";
+  const newNote = params.note !== undefined ? params.note : existingExpense.note;
+  const newReceiptUrl = params.receiptUrl !== undefined ? params.receiptUrl : existingExpense.receiptUrl;
+
+  if (newReceiptUrl) {
+    try {
+      new URL(newReceiptUrl);
+    } catch {
+      throw new ApiError("receiptUrl must be a valid URL", 400, "INVALID_RECEIPT_URL");
+    }
+  }
 
   if (!isValidId(newPayerId)) {
     throw new ApiError("Invalid payerId format", 400, "INVALID_PAYER_ID");
@@ -653,6 +786,8 @@ export async function editExpenseTransactional(
       },
       data: {
         title: newTitle.trim(),
+        note: newNote?.trim() || null,
+        receiptUrl: newReceiptUrl?.trim() || null,
         amountMinor: newAmountMinor,
         category: newCategory.trim(),
         payerId: newPayerId,
@@ -733,6 +868,17 @@ export async function editExpenseTransactional(
       },
     });
 
+    const amountChanged = existingExpense.amountMinor !== newAmountMinor;
+    await notifyTripMembers({
+      tripId: tripIdStr,
+      excludeUserId: requestingUserId,
+      title: "Expense updated",
+      message: amountChanged
+        ? `${existingExpense.title} expense was updated from ₹${(existingExpense.amountMinor / 100).toFixed(2)} to ₹${(newAmountMinor / 100).toFixed(2)}.`
+        : `${newTitle.trim()} expense was updated.`,
+      tx,
+    });
+
     const updatedExpense = await tx.expense.findUniqueOrThrow({ where: { id: expenseId } });
 
     return {
@@ -740,6 +886,8 @@ export async function editExpenseTransactional(
       tripId: tripIdStr,
       payerId: updatedExpense.payerId,
       title: updatedExpense.title,
+      note: updatedExpense.note,
+      receiptUrl: updatedExpense.receiptUrl,
       amountMinor: updatedExpense.amountMinor,
       category: updatedExpense.category,
       splitType: updatedExpense.splitType,
@@ -902,6 +1050,14 @@ export async function voidExpenseTransactional(
         previousSnapshot: previousSnapshot as Prisma.InputJsonValue,
         newSnapshot: newSnapshot as Prisma.InputJsonValue,
       },
+    });
+
+    await notifyTripMembers({
+      tripId: tripIdStr,
+      excludeUserId: requestingUserId,
+      title: "Expense voided",
+      message: `${existingExpense.title} (₹${(existingExpense.amountMinor / 100).toFixed(2)}) was voided. Reason: ${reason.trim()}.`,
+      tx,
     });
 
     const voidedDoc = await tx.expense.findUniqueOrThrow({ where: { id: expenseId } });
@@ -1081,6 +1237,8 @@ export async function getExpenseDetail(
     expenseId: expense.id,
     tripId: expense.tripId,
     title: expense.title,
+    note: expense.note,
+    receiptUrl: expense.receiptUrl,
     amountMinor: expense.amountMinor,
     category: expense.category,
     splitType: expense.splitType,

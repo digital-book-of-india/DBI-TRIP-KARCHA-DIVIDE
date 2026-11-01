@@ -1,4 +1,5 @@
 import prisma from "../prisma";
+import { HttpError } from "../apiError";
 
 export interface CreateSettlementInput {
   tripId: string;
@@ -37,15 +38,11 @@ export async function createSettlement(input: CreateSettlementInput): Promise<Se
   const { tripId, actorUserId, fromMemberId, toMemberId, amountMinor, paymentNote } = input;
 
   if (amountMinor <= 0) {
-    const error: any = new Error("Settlement amount must be greater than zero");
-    error.status = 400;
-    throw error;
+    throw new HttpError("Settlement amount must be greater than zero", 400);
   }
 
   if (fromMemberId === toMemberId) {
-    const error: any = new Error("Sender and receiver cannot be the same member");
-    error.status = 400;
-    throw error;
+    throw new HttpError("Sender and receiver cannot be the same member", 400);
   }
 
   // 1. Verify trip and members
@@ -61,15 +58,11 @@ export async function createSettlement(input: CreateSettlementInput): Promise<Se
   ]);
 
   if (!fromMember || fromMember.tripId !== tripId) {
-    const error: any = new Error("Invalid sender member for this trip");
-    error.status = 400;
-    throw error;
+    throw new HttpError("Invalid sender member for this trip", 400);
   }
 
   if (!toMember || toMember.tripId !== tripId) {
-    const error: any = new Error("Invalid receiver member for this trip");
-    error.status = 400;
-    throw error;
+    throw new HttpError("Invalid receiver member for this trip", 400);
   }
 
   // Verify actor permission: Must be the payer or an admin
@@ -88,9 +81,7 @@ export async function createSettlement(input: CreateSettlementInput): Promise<Se
     });
 
     if (!actorMembership || actorMembership.role !== "ADMIN") {
-      const error: any = new Error("Forbidden: Only the sender or a trip admin can record this payment");
-      error.status = 403;
-      throw error;
+      throw new HttpError("Forbidden: Only the sender or a trip admin can record this payment", 403);
     }
   }
 
@@ -171,15 +162,11 @@ export async function confirmSettlement(settlementId: string, actorUserId: strin
   });
 
   if (!settlement) {
-    const error: any = new Error("Settlement not found");
-    error.status = 404;
-    throw error;
+    throw new HttpError("Settlement not found", 404);
   }
 
   if (settlement.status === "CONFIRMED") {
-    const error: any = new Error("Settlement is already confirmed");
-    error.status = 400;
-    throw error;
+    throw new HttpError("Settlement is already confirmed", 400);
   }
 
   // Authorization check: Only receiver or trip admin can confirm
@@ -199,9 +186,7 @@ export async function confirmSettlement(settlementId: string, actorUserId: strin
   }
 
   if (!isReceiver && !isTripAdmin) {
-    const error: any = new Error("Forbidden: Only the receiving member or trip admin can confirm this payment");
-    error.status = 403;
-    throw error;
+    throw new HttpError("Forbidden: Only the receiving member or trip admin can confirm this payment", 403);
   }
 
   const formattedAmount = (Number(settlement.amountMinor) / 100).toFixed(2);
@@ -270,9 +255,7 @@ export async function disputeSettlement(
   });
 
   if (!settlement) {
-    const error: any = new Error("Settlement not found");
-    error.status = 404;
-    throw error;
+    throw new HttpError("Settlement not found", 404);
   }
 
   // Authorization check: Only receiver or trip admin can dispute
@@ -292,9 +275,7 @@ export async function disputeSettlement(
   }
 
   if (!isReceiver && !isTripAdmin) {
-    const error: any = new Error("Forbidden: Only the receiving member or trip admin can dispute this payment");
-    error.status = 403;
-    throw error;
+    throw new HttpError("Forbidden: Only the receiving member or trip admin can dispute this payment", 403);
   }
 
   const formattedAmount = (Number(settlement.amountMinor) / 100).toFixed(2);
@@ -362,9 +343,7 @@ export async function getTripSettlements(tripId: string, actorUserId: string) {
   });
 
   if (!membership) {
-    const error: any = new Error("Access Denied: You are not a member of this trip");
-    error.status = 403;
-    throw error;
+    throw new HttpError("Access Denied: You are not a member of this trip", 403);
   }
 
   const settlements = await prisma.settlement.findMany({

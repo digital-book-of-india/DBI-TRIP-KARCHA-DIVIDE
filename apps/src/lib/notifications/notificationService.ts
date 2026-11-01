@@ -1,4 +1,6 @@
 import prisma from "../prisma";
+import type { Prisma } from "@prisma/client";
+import { HttpError } from "../apiError";
 
 export interface GetNotificationsOptions {
   limit?: number;
@@ -11,7 +13,7 @@ export async function getUserNotifications(
 ) {
   const { limit = 50, unreadOnly = false } = options;
 
-  const whereClause: any = { userId };
+  const whereClause: Prisma.NotificationWhereInput = { userId };
   if (unreadOnly) {
     whereClause.readAt = null;
   }
@@ -52,16 +54,12 @@ export async function markNotificationAsRead(notificationId: string, userId: str
   });
 
   if (!notification) {
-    const error: any = new Error("Notification not found");
-    error.status = 404;
-    throw error;
+    throw new HttpError("Notification not found", 404);
   }
 
   // Authorization: Only the owner of the notification can mark it read
   if (notification.userId !== userId) {
-    const error: any = new Error("Forbidden: You cannot modify another user's notifications");
-    error.status = 403;
-    throw error;
+    throw new HttpError("Forbidden: You cannot modify another user's notifications", 403);
   }
 
   const updated = await prisma.notification.update({

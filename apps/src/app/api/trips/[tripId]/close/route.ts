@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { query, getClient, logActivity } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth";
+import { notifyTripMembers } from "@/lib/notifications/notifyTrip";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -34,10 +35,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ tripId:
     });
 
     await client.query("COMMIT");
+
+    await notifyTripMembers({
+      tripId,
+      excludeUserId: auth.userId,
+      title: "Trip closed",
+      message: `${result.rows[0].name} was closed. View the final summary.`,
+    });
+
     return NextResponse.json({ success: true, message: "Trip closed successfully", data: { trip: result.rows[0] } });
-  } catch (err: any) {
+  } catch (err: unknown) {
     await client.query("ROLLBACK");
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Failed to close trip";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   } finally {
     client.release();
   }

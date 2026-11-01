@@ -22,6 +22,11 @@ const testFiles = [
   "./concurrentEdit.test.ts",
   "./softVoid.test.ts",
   "./phase3Rollback.test.ts",
+  "./balanceEngine.test.ts",
+  "./balanceService.test.ts",
+  "./expenseNotifications.test.ts",
+  "./expenseFieldsAndIdempotency.test.ts",
+  "./reportCsv.test.ts",
 ];
 
 for (const file of testFiles) {

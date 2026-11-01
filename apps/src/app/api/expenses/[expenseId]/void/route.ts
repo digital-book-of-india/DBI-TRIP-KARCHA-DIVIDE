@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "../../../../../lib/auth/authMiddleware";
 import { voidExpenseTransactional, ApiError } from "../../../../../services/expenseService";
+import { checkRateLimit } from "../../../../../lib/rateLimit";
 
 interface RouteContext {
   params: Promise<{ expenseId: string }>;
@@ -22,6 +23,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Authentication required" },
         { status: 401 }
+      );
+    }
+
+    const { allowed } = checkRateLimit(`expense_write_${authUser.userId}`, 30, 60000);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: "Too many expense writes. Please wait a moment." },
+        { status: 429 }
       );
     }
 

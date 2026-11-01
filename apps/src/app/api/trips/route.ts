@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
       await client.query("COMMIT");
       return NextResponse.json({ success: true, data: { trip: newTrip } }, { status: 201 });
-    } catch (dbErr: any) {
+    } catch (dbErr: unknown) {
       await client.query("ROLLBACK");
       throw dbErr;
     } finally {

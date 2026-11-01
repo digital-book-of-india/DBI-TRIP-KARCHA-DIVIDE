@@ -6,6 +6,7 @@ import {
   ApiError,
   RawAllocationInput,
 } from "../../../../services/expenseService";
+import { checkRateLimit } from "../../../../lib/rateLimit";
 
 interface RouteContext {
   params: Promise<{ expenseId: string }>;
@@ -18,6 +19,8 @@ interface EditExpenseRequestBody {
   payerId?: string;
   splitType?: "EQUAL" | "EXACT" | "PERCENTAGE";
   allocations?: RawAllocationInput[];
+  note?: string;
+  receiptUrl?: string;
   version: number;
 }
 
@@ -73,6 +76,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const { allowed } = checkRateLimit(`expense_write_${authUser.userId}`, 30, 60000);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: "Too many expense writes. Please wait a moment." },
+        { status: 429 }
+      );
+    }
+
     const { expenseId } = await context.params;
 
     let body: EditExpenseRequestBody;
@@ -95,6 +106,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       payerId: body.payerId,
       splitType: body.splitType,
       allocations: body.allocations,
+      note: body.note,
+      receiptUrl: body.receiptUrl,
     });
 
     return NextResponse.json(
