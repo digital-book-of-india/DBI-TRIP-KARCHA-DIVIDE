@@ -18,7 +18,7 @@ interface VoidExpenseRequestBody {
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const authUser = getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser(request);
     if (!authUser) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Authentication required" },

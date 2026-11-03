@@ -30,7 +30,7 @@ interface EditExpenseRequestBody {
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const authUser = getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser(request);
     if (!authUser) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Authentication required" },
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const authUser = getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser(request);
     if (!authUser) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Authentication required" },

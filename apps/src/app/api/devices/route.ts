@@ -13,7 +13,7 @@ const VALID_PLATFORMS = ["android", "ios"];
  * updates lastSeenAt instead of creating a duplicate row.
  */
 export async function POST(req: NextRequest) {
-  const user = getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req);
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
  * notification controls).
  */
 export async function GET(req: NextRequest) {
-  const user = getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req);
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }

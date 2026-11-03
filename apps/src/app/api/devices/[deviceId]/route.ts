@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
  * controls in the PDF spec).
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ deviceId: string }> }) {
-  const user = getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req);
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ de
  * stale token is not retried indefinitely.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ deviceId: string }> }) {
-  const user = getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req);
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }

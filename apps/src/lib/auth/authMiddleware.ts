@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
 import { prisma } from "../db";
-import { JWT_SECRET } from "../jwtSecret";
+import { getIntegrationJwtSecret } from "../jwtSecret";
 
 export interface AuthenticatedUser {
   userId: string;
@@ -28,54 +28,44 @@ export function isValidId(id: string): boolean {
 /**
  * Extracts and verifies the authenticated user from the HTTP request.
  *
- * Verifies:
- * 1. Authorization: Bearer <jwt_token>
- * 2. In test/dev environments, also accepts verified x-user-id header.
+ * Verifies a short-lived access token minted by the main application's gateway.
  *
  * Returns null if authentication is missing or token is invalid.
  */
-export function getAuthenticatedUser(request: NextRequest | Request): AuthenticatedUser | null {
+export async function getAuthenticatedUser(request: Pick<Request, "headers"> | NextRequest): Promise<AuthenticatedUser | null> {
   const authHeader = request.headers.get("authorization");
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
+    if (!token) return null;
+
+    const secret = getIntegrationJwtSecret();
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
-      const rawUserId = decoded.userId || decoded.id || decoded.sub || decoded._id;
-      if (rawUserId && typeof rawUserId === "string" && isValidId(rawUserId)) {
-        return {
-          userId: rawUserId,
-          email: typeof decoded.email === "string" ? decoded.email : undefined,
-          name: typeof decoded.name === "string" ? decoded.name : undefined,
-        };
+      const decoded = jwt.verify(token, secret, {
+        algorithms: ["HS256"],
+        audience: "trip-kharcha",
+      });
+      if (
+        typeof decoded === "string" ||
+        decoded.typ !== "access" ||
+        typeof decoded.userId !== "string" ||
+        !isValidId(decoded.userId) ||
+        typeof decoded.sub !== "string" ||
+        !isValidId(decoded.sub) ||
+        typeof decoded.exp !== "number" ||
+        !Number.isInteger(decoded.exp) ||
+        decoded.exp <= Math.floor(Date.now() / 1000)
+      ) {
+        return null;
       }
+
+      return { userId: decoded.userId };
     } catch {
       return null;
     }
   }
 
-  // SECURITY: the x-user-id bypass is for local/test/dev use only. It must
-  // never be honored in production, or any caller could impersonate any user
-  // by simply setting a header, completely defeating JWT authentication.
-  if (process.env.NODE_ENV !== "production") {
-    const xUserId = request.headers.get("x-user-id");
-    if (xUserId && isValidId(xUserId)) {
-      return {
-        userId: xUserId,
-        email: request.headers.get("x-user-email") ?? undefined,
-        name: request.headers.get("x-user-name") ?? undefined,
-      };
-    }
-  }
-
   return null;
-}
-
-/**
- * Generates a signed JWT authentication token for tests or sessions.
- */
-export function signAuthToken(payload: { userId: string; email?: string; name?: string }): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
 /**

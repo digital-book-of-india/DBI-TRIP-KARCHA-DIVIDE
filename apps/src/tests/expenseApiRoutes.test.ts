@@ -6,7 +6,7 @@ import { POST as createExpenseRoute, GET as getTripExpensesRoute } from "../app/
 import { GET as getExpenseDetailRoute, PATCH as editExpenseRoute } from "../app/api/expenses/[expenseId]/route";
 import { POST as voidExpenseRoute } from "../app/api/expenses/[expenseId]/void/route";
 import { createExpenseTransactional } from "../services/expenseService";
-import { signAuthToken } from "../lib/auth/authMiddleware";
+import { signTripKharchaAccessToken } from "./testAuth";
 
 describe("Expense API Route Handlers Integration Tests", () => {
   let tripId: string;
@@ -53,7 +53,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
     });
 
     it("returns 201 and created expense on valid request", async () => {
-      const token = signAuthToken({ userId: ownerId, email: "owner@trip.com" });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/trips/${tripId}/expenses`, {
         method: "POST",
         headers: {
@@ -83,7 +83,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
     });
 
     it("returns 403 when requesting user is not a trip member", async () => {
-      const token = signAuthToken({ userId: strangerId, email: "stranger@test.com" });
+      const token = signTripKharchaAccessToken(strangerId);
       const req = new NextRequest(`http://localhost:3000/api/trips/${tripId}/expenses`, {
         method: "POST",
         headers: {
@@ -126,7 +126,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
     });
 
     it("returns 200 and paginated expense feed", async () => {
-      const token = signAuthToken({ userId: memberId, email: "member@trip.com" });
+      const token = signTripKharchaAccessToken(memberId);
       const req = new NextRequest(`http://localhost:3000/api/trips/${tripId}/expenses?page=1&limit=10`, {
         headers: {
           authorization: `Bearer ${token}`,
@@ -148,7 +148,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
   describe("GET /api/expenses/[expenseId] Route Handler", () => {
     it("returns 404 for non-existent expense ID", async () => {
       const nonExistentId = createTestId();
-      const token = signAuthToken({ userId: ownerId });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/expenses/${nonExistentId}`, {
         headers: {
           authorization: `Bearer ${token}`,
@@ -195,7 +195,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
         allocations: [{ userId: ownerId }, { userId: memberId }],
       });
 
-      const token = signAuthToken({ userId: ownerId });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/expenses/${created.expenseId}`, {
         method: "PATCH",
         headers: {
@@ -221,6 +221,34 @@ describe("Expense API Route Handlers Integration Tests", () => {
       assert.strictEqual(json.data.version, 2);
     });
 
+    it("returns 403 when a non-payer member edits another member's expense", async () => {
+      const created = await createExpenseTransactional({
+        requestingUserId: ownerId,
+        tripId,
+        payerId: ownerId,
+        title: "Owner Expense",
+        amountMinor: 2000,
+        category: "food",
+        splitType: "EQUAL",
+        allocations: [{ userId: ownerId }, { userId: memberId }],
+      });
+      const token = signTripKharchaAccessToken(memberId);
+      const req = new NextRequest(`http://localhost:3000/api/expenses/${created.expenseId}`, {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ version: 1, title: "Unauthorized edit" }),
+      });
+
+      const response = await editExpenseRoute(req, {
+        params: Promise.resolve({ expenseId: created.expenseId }),
+      });
+
+      assert.equal(response.status, 403);
+    });
+
     it("returns 409 Conflict when editing with a stale version", async () => {
       const created = await createExpenseTransactional({
         requestingUserId: ownerId,
@@ -238,7 +266,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
       doc.version = 2;
       testDb.expenses.set(created.expenseId, doc);
 
-      const token = signAuthToken({ userId: ownerId });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/expenses/${created.expenseId}`, {
         method: "PATCH",
         headers: {
@@ -292,7 +320,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
         allocations: [{ userId: ownerId }],
       });
 
-      const token = signAuthToken({ userId: ownerId });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/expenses/${created.expenseId}/void`, {
         method: "POST",
         headers: {
@@ -334,7 +362,7 @@ describe("Expense API Route Handlers Integration Tests", () => {
       doc.isVoid = true;
       testDb.expenses.set(created.expenseId, doc);
 
-      const token = signAuthToken({ userId: ownerId });
+      const token = signTripKharchaAccessToken(ownerId);
       const req = new NextRequest(`http://localhost:3000/api/expenses/${created.expenseId}/void`, {
         method: "POST",
         headers: {

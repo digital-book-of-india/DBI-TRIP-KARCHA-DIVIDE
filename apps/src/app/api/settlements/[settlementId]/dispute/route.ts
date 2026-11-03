@@ -9,7 +9,7 @@ export async function POST(
 ) {
   try {
     const { settlementId } = await params;
-    const user = getAuthenticatedUser(req);
+    const user = await getAuthenticatedUser(req);
 
     if (!user) {
       return NextResponse.json(
@@ -37,4 +37,3 @@ export async function POST(
     return errorResponse(err, "Failed to dispute settlement");
   }
 }
-

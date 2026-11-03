@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { randomUUID } from "node:crypto";
 import { setPrismaClient } from "../lib/db";
 import { Prisma, PrismaClient } from "@prisma/client";
 
@@ -16,6 +17,7 @@ export const testDb = {
   settlements: new Map<string, any>(),
   settlementEvents: new Map<string, any>(),
   notifications: new Map<string, any>(),
+  mainAppIdentities: new Map<string, any>(),
 
   clear() {
     this.users.clear();
@@ -27,14 +29,16 @@ export const testDb = {
     this.settlements.clear();
     this.settlementEvents.clear();
     this.notifications.clear();
+    this.mainAppIdentities.clear();
   },
 
-  addUser(user: { _id?: string; id?: string; name: string; email: string; passwordHash?: string }) {
+  addUser(user: { _id?: string; id?: string; name: string; email?: string | null; passwordHash?: string | null }) {
     const id = user.id || user._id || createTestId();
     const doc = {
       id,
       name: user.name,
-      email: user.email,
+      displayName: user.name,
+      email: user.email ?? null,
       passwordHash: user.passwordHash ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -82,6 +86,22 @@ interface TransactionDeltaLog {
 
 function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
   return {
+    async $queryRaw(strings: TemplateStringsArray, ...values: any[]) {
+      const sql = strings.join("?");
+      if (sql.includes("FROM users") && sql.includes("LOWER(email)")) {
+        const email = String(values[0]).toLowerCase();
+        return [...testDb.users.values()]
+          .filter((user) => (user.email ?? "").toLowerCase() === email)
+          .slice(0, 2)
+          .map((user) => ({ id: user.id }));
+      }
+      if (sql.includes("INSERT INTO users")) {
+        const [name, email] = values;
+        const user = testDb.addUser({ id: randomUUID(), name, email });
+        return [{ id: user.id }];
+      }
+      throw new Error("Unexpected test query");
+    },
     user: {
       async findUnique(args: any) {
         const id = args.where?.id;
@@ -91,7 +111,7 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           found = testDb.users.get(id);
         } else if (email) {
           for (const u of testDb.users.values()) {
-            if (u.email.toLowerCase() === email.toLowerCase()) {
+            if ((u.email ?? "").toLowerCase() === email.toLowerCase()) {
               found = u;
               break;
             }
@@ -107,11 +127,36 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
         }
         return { ...found };
       },
+      async upsert(args: any) {
+        const existing = testDb.users.get(args.where.id);
+        const user = existing ?? testDb.addUser({
+          id: args.create.id,
+          name: args.create.displayName || args.create.name || "",
+          email: args.create.email,
+          passwordHash: args.create.password_hash,
+        });
+        if (args.select) {
+          const result: any = {};
+          for (const [key, selected] of Object.entries(args.select)) {
+            if (selected) result[key] = (user as any)[key];
+          }
+          return result;
+        }
+        return { ...user };
+      },
       async findMany(args: any) {
         const ids = args?.where?.id?.in;
+        const emailFilter = args?.where?.email;
+        const expectedEmail = typeof emailFilter === "string" ? emailFilter : emailFilter?.equals;
+        const caseInsensitiveEmail = emailFilter?.mode === "insensitive";
         const results: any[] = [];
         for (const u of testDb.users.values()) {
           if (ids && !ids.includes(u.id)) continue;
+          if (expectedEmail) {
+            const userEmail = (u.email ?? "").toLowerCase();
+            const compareEmail = caseInsensitiveEmail ? expectedEmail.toLowerCase() : expectedEmail;
+            if (caseInsensitiveEmail ? userEmail !== compareEmail : u.email !== compareEmail) continue;
+          }
           if (args?.select) {
             const res: any = {};
             for (const [k, v] of Object.entries(args.select)) {
@@ -123,6 +168,27 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           }
         }
         return results;
+      },
+    },
+
+    mainAppIdentity: {
+      async findUnique(args: any) {
+        const identity = testDb.mainAppIdentities.get(args.where.subject);
+        if (!identity) return null;
+        const result: any = { ...identity };
+        if (args.include?.user) {
+          const user = testDb.users.get(identity.userId);
+          result.user = user ? { ...user } : null;
+        }
+        return result;
+      },
+      async upsert(args: any) {
+        let identity = testDb.mainAppIdentities.get(args.where.subject);
+        if (!identity) {
+          identity = { ...args.create, createdAt: new Date() };
+          testDb.mainAppIdentities.set(args.where.subject, identity);
+        }
+        return { ...identity };
       },
     },
 
@@ -224,7 +290,7 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
             results.push(res);
           }
         }
-        return results;
+        return args?.take ? results.slice(0, args.take) : results;
       },
     },
 
