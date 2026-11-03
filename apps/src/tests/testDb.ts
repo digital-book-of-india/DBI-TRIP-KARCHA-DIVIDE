@@ -16,6 +16,7 @@ export const testDb = {
   settlements: new Map<string, any>(),
   settlementEvents: new Map<string, any>(),
   notifications: new Map<string, any>(),
+  mainAppIdentities: new Map<string, any>(),
 
   clear() {
     this.users.clear();
@@ -27,14 +28,16 @@ export const testDb = {
     this.settlements.clear();
     this.settlementEvents.clear();
     this.notifications.clear();
+    this.mainAppIdentities.clear();
   },
 
-  addUser(user: { _id?: string; id?: string; name: string; email: string; passwordHash?: string }) {
+  addUser(user: { _id?: string; id?: string; name: string; email?: string | null; passwordHash?: string | null }) {
     const id = user.id || user._id || createTestId();
     const doc = {
       id,
       name: user.name,
-      email: user.email,
+      displayName: user.name,
+      email: user.email ?? null,
       passwordHash: user.passwordHash ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -91,7 +94,7 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           found = testDb.users.get(id);
         } else if (email) {
           for (const u of testDb.users.values()) {
-            if (u.email.toLowerCase() === email.toLowerCase()) {
+            if ((u.email ?? "").toLowerCase() === email.toLowerCase()) {
               found = u;
               break;
             }
@@ -106,6 +109,23 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           return res;
         }
         return { ...found };
+      },
+      async upsert(args: any) {
+        const existing = testDb.users.get(args.where.id);
+        const user = existing ?? testDb.addUser({
+          id: args.create.id,
+          name: args.create.displayName || args.create.name || "",
+          email: args.create.email,
+          passwordHash: args.create.password_hash,
+        });
+        if (args.select) {
+          const result: any = {};
+          for (const [key, selected] of Object.entries(args.select)) {
+            if (selected) result[key] = (user as any)[key];
+          }
+          return result;
+        }
+        return { ...user };
       },
       async findMany(args: any) {
         const ids = args?.where?.id?.in;
@@ -123,6 +143,27 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
           }
         }
         return results;
+      },
+    },
+
+    mainAppIdentity: {
+      async findUnique(args: any) {
+        const identity = testDb.mainAppIdentities.get(args.where.subject);
+        if (!identity) return null;
+        const result: any = { ...identity };
+        if (args.include?.user) {
+          const user = testDb.users.get(identity.userId);
+          result.user = user ? { ...user } : null;
+        }
+        return result;
+      },
+      async upsert(args: any) {
+        let identity = testDb.mainAppIdentities.get(args.where.subject);
+        if (!identity) {
+          identity = { ...args.create, createdAt: new Date() };
+          testDb.mainAppIdentities.set(args.where.subject, identity);
+        }
+        return { ...identity };
       },
     },
 

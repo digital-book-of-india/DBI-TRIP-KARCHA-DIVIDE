@@ -1,5 +1,29 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Backend authentication integration
+
+Protected API routes accept only main-application HS256 access tokens. Configure
+`JWT_SECRET` to the same secret used by the main application. Tokens must include
+`typ: "access"`, a valid `sub`, and an unexpired `exp`; Trip Kharcha does not
+issue or refresh tokens. The former `/api/auth/login` and `/api/auth/signup`
+endpoints return `410 Gone` because authentication and registration are managed
+by the main application.
+
+Before deploying this integration, apply
+[`prisma/migrations/20261103000000_main_app_identity_bridge/migration.sql`](./prisma/migrations/20261103000000_main_app_identity_bridge/migration.sql).
+It only relaxes the `users.email` and `users.password_hash` nullability
+constraints and adds `main_app_identities`; it does not alter or delete existing
+records. A first-seen main-app subject receives a credential-free Trip Kharcha
+profile whose ID is that subject. To preserve an existing profile and its trip
+history, an administrator must link the subject before its first authenticated
+request by inserting a row into `main_app_identities` with the verified main-app
+subject and the existing `users.id`. The unique constraints prevent a subject
+or profile from being linked more than once.
+
+Do not link identities based only on email: the main-app access token does not
+contain an email claim. Existing local password accounts are not automatically
+matched or migrated.
+
 ## Getting Started
 
 First, run the development server:

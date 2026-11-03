@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/test_dbi_trip?schema=public";
 process.env.NODE_ENV = "test";
+process.env.JWT_SECRET = "unit-test-only-jwt-secret";
 
 const path = require("path");
 const { createJiti } = require("jiti");
@@ -14,6 +15,7 @@ const testFiles = [
   "./percentageSplit.test.ts",
   "./integrity.test.ts",
   "./models.test.ts",
+  "./authMiddleware.test.ts",
   "./expenseCreation.test.ts",
   "./expenseFeed.test.ts",
   "./expenseDetail.test.ts",
