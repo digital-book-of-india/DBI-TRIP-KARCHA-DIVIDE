@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { randomUUID } from "node:crypto";
 import { setPrismaClient } from "../lib/db";
 import { Prisma, PrismaClient } from "@prisma/client";
 
@@ -85,6 +86,22 @@ interface TransactionDeltaLog {
 
 function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
   return {
+    async $queryRaw(strings: TemplateStringsArray, ...values: any[]) {
+      const sql = strings.join("?");
+      if (sql.includes("FROM users") && sql.includes("LOWER(email)")) {
+        const email = String(values[0]).toLowerCase();
+        return [...testDb.users.values()]
+          .filter((user) => (user.email ?? "").toLowerCase() === email)
+          .slice(0, 2)
+          .map((user) => ({ id: user.id }));
+      }
+      if (sql.includes("INSERT INTO users")) {
+        const [name, email] = values;
+        const user = testDb.addUser({ id: randomUUID(), name, email });
+        return [{ id: user.id }];
+      }
+      throw new Error("Unexpected test query");
+    },
     user: {
       async findUnique(args: any) {
         const id = args.where?.id;
@@ -129,9 +146,17 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
       },
       async findMany(args: any) {
         const ids = args?.where?.id?.in;
+        const emailFilter = args?.where?.email;
+        const expectedEmail = typeof emailFilter === "string" ? emailFilter : emailFilter?.equals;
+        const caseInsensitiveEmail = emailFilter?.mode === "insensitive";
         const results: any[] = [];
         for (const u of testDb.users.values()) {
           if (ids && !ids.includes(u.id)) continue;
+          if (expectedEmail) {
+            const userEmail = (u.email ?? "").toLowerCase();
+            const compareEmail = caseInsensitiveEmail ? expectedEmail.toLowerCase() : expectedEmail;
+            if (caseInsensitiveEmail ? userEmail !== compareEmail : u.email !== compareEmail) continue;
+          }
           if (args?.select) {
             const res: any = {};
             for (const [k, v] of Object.entries(args.select)) {
@@ -265,7 +290,7 @@ function createMockPrismaOperations(txLog?: TransactionDeltaLog): any {
             results.push(res);
           }
         }
-        return results;
+        return args?.take ? results.slice(0, args.take) : results;
       },
     },
 

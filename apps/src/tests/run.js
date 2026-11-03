@@ -2,6 +2,7 @@
 process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/test_dbi_trip?schema=public";
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "unit-test-only-jwt-secret";
+process.env.TRIP_KHARCHA_INTEGRATION_SECRET = "unit-test-only-trip-integration-secret-32-bytes";
 
 const path = require("path");
 const { createJiti } = require("jiti");

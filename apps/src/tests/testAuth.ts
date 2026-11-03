@@ -1,10 +1,10 @@
 import jwt from "jsonwebtoken";
-import { getJwtSecret } from "../lib/jwtSecret";
+import { getIntegrationJwtSecret } from "../lib/jwtSecret";
 
-export function signMainAppAccessToken(userId: string): string {
+export function signTripKharchaAccessToken(userId: string): string {
   return jwt.sign(
-    { role: "USER", typ: "access" },
-    getJwtSecret(),
+    { typ: "access", aud: "trip-kharcha", userId },
+    getIntegrationJwtSecret(),
     { algorithm: "HS256", subject: userId, expiresIn: "7d" }
   );
 }

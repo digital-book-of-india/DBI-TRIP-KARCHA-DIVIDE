@@ -55,17 +55,14 @@ model User {
   devices         UserDevice[]
   activity_events ActivityEvent[]
   trip_invites    TripInvite[]
-  mainAppIdentity MainAppIdentity?
 
   @@map("users")
 }
 
 model MainAppIdentity {
   subject   String   @id
-  userId    String   @unique @map("user_id")
+  userId    String   @unique @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("main_app_identities")
 }

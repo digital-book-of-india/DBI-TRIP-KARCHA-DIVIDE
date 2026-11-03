@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
 import { prisma } from "../db";
-import { getJwtSecret } from "../jwtSecret";
+import { getIntegrationJwtSecret } from "../jwtSecret";
 
 export interface AuthenticatedUser {
   userId: string;
@@ -28,8 +28,7 @@ export function isValidId(id: string): boolean {
 /**
  * Extracts and verifies the authenticated user from the HTTP request.
  *
- * Verifies:
- * 1. Authorization: Bearer <jwt_token>
+ * Verifies a short-lived access token minted by the main application's gateway.
  *
  * Returns null if authentication is missing or token is invalid.
  */
@@ -40,15 +39,17 @@ export async function getAuthenticatedUser(request: Pick<Request, "headers"> | N
     const token = authHeader.substring(7).trim();
     if (!token) return null;
 
-    const secret = getJwtSecret();
-    let subject: string;
+    const secret = getIntegrationJwtSecret();
     try {
       const decoded = jwt.verify(token, secret, {
         algorithms: ["HS256"],
+        audience: "trip-kharcha",
       });
       if (
         typeof decoded === "string" ||
         decoded.typ !== "access" ||
+        typeof decoded.userId !== "string" ||
+        !isValidId(decoded.userId) ||
         typeof decoded.sub !== "string" ||
         !isValidId(decoded.sub) ||
         typeof decoded.exp !== "number" ||
@@ -58,60 +59,13 @@ export async function getAuthenticatedUser(request: Pick<Request, "headers"> | N
         return null;
       }
 
-      subject = decoded.sub;
+      return { userId: decoded.userId };
     } catch {
       return null;
     }
-
-    const identity = await resolveMainAppIdentity(subject);
-    return {
-      userId: identity.userId,
-      email: identity.email ?? undefined,
-      name: identity.name ?? undefined,
-    };
   }
 
   return null;
-}
-
-async function resolveMainAppIdentity(subject: string) {
-  const mappedIdentity = await prisma.mainAppIdentity.findUnique({
-    where: { subject },
-    include: { user: { select: { id: true, email: true, name: true, displayName: true } } },
-  });
-  if (mappedIdentity) {
-    return {
-      userId: mappedIdentity.userId,
-      email: mappedIdentity.user.email,
-      name: mappedIdentity.user.displayName || mappedIdentity.user.name,
-    };
-  }
-
-  return prisma.$transaction(async (transaction) => {
-    const user = await transaction.user.upsert({
-      where: { id: subject },
-      create: {
-        id: subject,
-        name: "",
-        displayName: "",
-        email: null,
-        password_hash: null,
-      },
-      update: {},
-      select: { id: true, email: true, name: true, displayName: true },
-    });
-    const identity = await transaction.mainAppIdentity.upsert({
-      where: { subject },
-      create: { subject, userId: user.id },
-      update: {},
-    });
-
-    return {
-      userId: identity.userId,
-      email: user.email,
-      name: user.displayName || user.name,
-    };
-  });
 }
 
 /**
