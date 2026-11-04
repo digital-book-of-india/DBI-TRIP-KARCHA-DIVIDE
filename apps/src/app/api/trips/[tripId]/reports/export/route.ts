@@ -12,7 +12,7 @@ import { errorResponse } from "@/lib/apiError";
 export async function GET(req: NextRequest, { params }: { params: Promise<{ tripId: string }> }) {
   try {
     const { tripId } = await params;
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized: Please sign in" }, { status: 401 });
     }

@@ -9,7 +9,7 @@ export async function POST(
 ) {
   try {
     const { tripId } = await params;
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
 
     if (!user) {
       return NextResponse.json(
@@ -59,7 +59,7 @@ export async function GET(
 ) {
   try {
     const { tripId } = await params;
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
 
     if (!user) {
       return NextResponse.json(
@@ -78,3 +78,4 @@ export async function GET(
     return errorResponse(err, "Failed to fetch settlements");
   }
 }
+

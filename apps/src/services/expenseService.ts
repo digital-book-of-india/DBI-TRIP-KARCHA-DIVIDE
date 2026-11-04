@@ -1166,7 +1166,7 @@ export async function getTripExpensesPaginated(
       payer: {
         userId: e.payer.id,
         name: e.payer.name,
-        email: e.payer.email ?? undefined,
+        email: e.payer.email,
       },
       splitType: e.splitType,
       allocationSummary: summary,
@@ -1249,18 +1249,18 @@ export async function getExpenseDetail(
       ? {
           userId: expense.voidedBy.id,
           name: expense.voidedBy.name,
-          email: expense.voidedBy.email ?? undefined,
+          email: expense.voidedBy.email,
         }
       : null,
     payer: {
       userId: expense.payer.id,
       name: expense.payer.name,
-      email: expense.payer.email ?? undefined,
+      email: expense.payer.email,
     },
     allocations: expense.allocations.map((a) => ({
       userId: a.userId,
       name: a.user?.name,
-      email: a.user?.email ?? undefined,
+      email: a.user?.email,
       amountMinor: a.amountMinor,
       percentage: a.percentage ?? undefined,
       shares: a.shares ?? undefined,
@@ -1270,7 +1270,7 @@ export async function getExpenseDetail(
       changedBy: {
         userId: log.changedBy.id,
         name: log.changedBy.name,
-        email: log.changedBy.email ?? undefined,
+        email: log.changedBy.email,
       },
       previousSnapshot: log.previousSnapshot as Record<string, unknown> | null,
       newSnapshot: log.newSnapshot as Record<string, unknown> | null,

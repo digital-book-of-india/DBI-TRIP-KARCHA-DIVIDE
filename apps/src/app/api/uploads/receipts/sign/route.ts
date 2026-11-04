@@ -32,7 +32,7 @@ interface SignRequestBody {
  * up, rather than silently pretending uploads work.
  */
 export async function POST(req: NextRequest) {
-  const user = await getAuthenticatedUser(req);
+  const user = getAuthenticatedUser(req);
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }

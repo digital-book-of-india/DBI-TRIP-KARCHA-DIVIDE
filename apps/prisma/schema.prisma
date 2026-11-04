@@ -37,7 +37,7 @@ model User {
   id            String    @id @default(cuid())
   name          String    @default("")
   displayName   String    @default("") @map("display_name")
-  email         String?   @unique
+  email         String    @unique
   password_hash String?   @default("") @map("password_hash")
   avatarUrl     String?   @default("") @map("avatar_url")
   accountStatus String?   @default("ACTIVE") @map("account_status")
@@ -57,14 +57,6 @@ model User {
   trip_invites    TripInvite[]
 
   @@map("users")
-}
-
-model MainAppIdentity {
-  subject   String   @id
-  userId    String   @unique @map("user_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("main_app_identities")
 }
 
 model UserDevice {

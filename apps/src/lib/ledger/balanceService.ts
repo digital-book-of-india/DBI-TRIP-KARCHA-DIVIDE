@@ -155,7 +155,7 @@ export async function getTripBalances(
       memberId: b.memberId,
       userId: memberObj?.userId || "",
       name: b.name || memberObj?.user?.displayName || "Member",
-      email: memberObj?.user?.email ?? undefined,
+      email: memberObj?.user?.email,
       avatarUrl: memberObj?.user?.avatarUrl,
       totalPaidMinor: b.totalPaidMinor,
       totalPaid: b.totalPaidMinor / 100,
@@ -190,3 +190,4 @@ export async function getTripBalances(
     suggestedTransfers: enrichedTransfers,
   };
 }
+

@@ -8,7 +8,7 @@ import { errorResponse } from "@/lib/apiError";
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Please sign in" },
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: Please sign in" },
@@ -55,3 +55,4 @@ export async function POST(req: NextRequest) {
     return errorResponse(err, "Failed to mark notifications as read");
   }
 }
+

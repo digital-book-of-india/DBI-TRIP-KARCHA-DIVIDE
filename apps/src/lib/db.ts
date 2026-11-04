@@ -88,8 +88,8 @@ export async function initDB(): Promise<void> {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       display_name TEXT NOT NULL,
-      email TEXT UNIQUE,
-      password_hash TEXT,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
       avatar_url TEXT DEFAULT '',
       terms_accepted BOOLEAN DEFAULT true,
       account_status TEXT DEFAULT 'ACTIVE',
@@ -143,13 +143,6 @@ export async function initDB(): Promise<void> {
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT true;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN DEFAULT false;
-    ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
-    ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
-    CREATE TABLE IF NOT EXISTS main_app_identities (
-      subject TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
     ALTER TABLE trip_invites ADD COLUMN IF NOT EXISTS invite_code_hash TEXT;
     ALTER TABLE trip_invites ADD COLUMN IF NOT EXISTS invitee_email TEXT;
     ALTER TABLE trips ADD COLUMN IF NOT EXISTS share_code TEXT UNIQUE;

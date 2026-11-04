@@ -9,7 +9,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
 
     if (!user) {
       return NextResponse.json(
@@ -29,3 +29,4 @@ export async function PATCH(
     return errorResponse(err, "Failed to mark notification as read");
   }
 }
+

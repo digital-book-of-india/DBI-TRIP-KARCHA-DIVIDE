@@ -18,7 +18,7 @@ export async function GET(
     }
 
     // 1. Authenticate user
-    const user = await getAuthenticatedUser(req);
+    const user = getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json(
         {
@@ -40,3 +40,4 @@ export async function GET(
     return errorResponse(err, "Failed to calculate trip balances");
   }
 }
+

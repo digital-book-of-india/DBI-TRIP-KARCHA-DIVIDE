@@ -1,35 +1,5 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Backend authentication integration
-
-Registration and login are handled by the Common Workspace application. Open
-Trip Kharcha from the signed-in workspace at `/trip-kharcha`; its frontend uses
-the main application's authenticated API client and calls the Express gateway
-under `/api/trip-kharcha/*`. The standalone Next.js page links back to Common
-Workspace, and the former `/api/auth/login` and `/api/auth/signup` endpoints
-remain retired with `410 Gone` responses.
-
-The main backend exchanges the authenticated user's identity with
-`/api/integration/identity`, then mints a five-minute Trip-scoped access token.
-Trip Kharcha verifies that token using `TRIP_KHARCHA_INTEGRATION_SECRET`; it does
-not accept the main app's ordinary access token directly. Keep the existing
-`JWT_SECRET` values independent. Set the same random secret of at least 32 bytes
-in `combined-app-main-project/backend/.env` and `apps/.env`, and set the main
-backend's `TRIP_KHARCHA_API_URL` to the Trip Next.js origin (for local
-development, `http://127.0.0.1:3001`). The main user also needs an active
-`trip-kharcha-divide` project grant.
-
-The identity bridge uses `main_app_identities` from
-[`prisma/migrations/20261103000000_main_app_identity_bridge/migration.sql`](./prisma/migrations/20261103000000_main_app_identity_bridge/migration.sql).
-It links a main-app subject to a matching case-insensitive email when exactly
-one existing Trip profile matches, preserving that profile's trip history. A
-new user receives a credential-free profile. Ambiguous or conflicting identity
-matches are rejected instead of merging accounts.
-
-Do not expose either backend secret to the browser or send access tokens through
-URLs. Main-app tokens remain managed by the Common Workspace auth client; the
-gateway performs the identity exchange and scoped-token minting server-side.
-
 ## Getting Started
 
 First, run the development server:
